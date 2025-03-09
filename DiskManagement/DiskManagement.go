@@ -111,3 +111,73 @@ func Mkdisk(size int, fit string, unit string, path string) {
 
 	fmt.Println("======FIN MKDISK======")
 }
+
+func CreateLogicalPartition(path string, size int, fit string, name string) {
+	fmt.Println("======INICIO CREATE LOGICAL PARTITION======")
+
+	// Abrir archivo del disco
+	file, err := Utilities.OpenFile(path)
+	if err != nil {
+		fmt.Println("Error al abrir el disco:", err)
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0); err != nil {
+		fmt.Println("Error al leer el MBR:", err)
+		return
+	}
+
+	// Buscar partición extendida
+	var extendedStart int64 = -1
+	for _, partition := range mbr.MbrPartitions {
+		if partition.PartType == 'E' {
+			extendedStart = partition.PartStart
+			break
+		}
+	}
+
+	if extendedStart == -1 {
+		fmt.Println("Error: No se encontró una partición extendida.")
+		return
+	}
+
+	// Buscar el primer espacio libre en la partición extendida
+	file.Seek(extendedStart, 0)
+	var ebr Structs.EBR
+	for {
+		err := Utilities.ReadObject(file, &ebr, extendedStart)
+		if err != nil {
+			fmt.Println("Error al leer el EBR:", err)
+			return
+		}
+
+		// Si encontramos un espacio libre o el último EBR, salimos del bucle
+		if ebr.PartStart == 0 || ebr.PartNext == -1 {
+			break
+		}
+
+		// Mover al siguiente EBR
+		extendedStart = ebr.PartNext
+	}
+
+	// Crear nuevo EBR
+	var newEBR Structs.EBR
+	newEBR.PartMount = 0
+	newEBR.PartFit = fit[0] // Guardamos solo la primera letra ('B', 'F' o 'W')
+	newEBR.PartStart = extendedStart + 1
+	newEBR.PartS = int64(size)
+	newEBR.PartNext = -1
+	copy(newEBR.PartName[:], name)
+
+	// Escribir nuevo EBR en disco
+	if err := Utilities.WriteObject(file, newEBR, extendedStart); err != nil {
+		fmt.Println("Error al escribir el nuevo EBR:", err)
+		return
+	}
+
+	fmt.Println("Partición lógica creada exitosamente en", path)
+	fmt.Println("======FIN CREATE LOGICAL PARTITION======")
+}
