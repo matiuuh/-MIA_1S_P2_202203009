@@ -1,0 +1,28 @@
+<div class="container">
+  <h2 class="title">Proyecto 1 MIA</h2>
+
+  <div class="input-output-container">
+    <div class="area">
+      <label for="entrada">Entrada</label>
+      <textarea id="entrada" [(ngModel)]="entrada" placeholder="Escribe aquí tu código fuente..."></textarea>
+    </div>
+
+    <div class="area">
+      <label for="consola">Consola</label>
+      <textarea id="consola" [(ngModel)]="consola" placeholder="Los resultados de la compilación aparecerán aquí..." readonly></textarea>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button class="btn load" (click)="fileInput.click()">
+      <i class="fas fa-file-upload"></i> Cargar Archivo
+    </button>
+    <input type="file" hidden #fileInput (change)="cargarArchivo($event)" />
+    <button class="btn run" (click)="ejecutar()">
+      <i class="fas fa-play"></i> Ejecutar
+    </button>
+    <button class="btn clear" (click)="limpiar()">
+      <i class="fas fa-trash"></i> Limpiar
+    </button>
+  </div>
+</div>
