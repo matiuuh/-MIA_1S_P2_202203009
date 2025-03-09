@@ -55,21 +55,23 @@ func Analyze() {
 	}
 }
 
-func AnalyzeCommnad(command string, params string) {
+//--------------------Analizador de tipo de comando--------------------
+func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 
 	if strings.Contains(command, "mkdisk") {
-		fn_mkdisk(params)
-	} else if strings.Contains(command, "rep") {
-		fmt.Print("COMANDO REP")
+		fn_mkdisk(paramsm, buffer)
+	} else if strings.Contains(command, "rmdisk") {
+		fn_rmdisk(params, buffer)
 	} else if strings.Contains(command, "fdisk") {
-		fn_fdisk(params)
+		fn_fdisk(params, buffer)
 	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
 
 }
 
-func fn_mkdisk(params string) {
+//--------------------Función para mkdisk--------------------
+func fn_mkdisk(params string, buffer io.Writer) {
 	// Definir flag
 	fs := flag.NewFlagSet("mkdisk", flag.ExitOnError)
 	size := fs.Int("size", 0, "Tamaño")
@@ -99,11 +101,11 @@ func fn_mkdisk(params string) {
 	}
 
 	/*
-			Primera Iteración :
-		    flagName es "size".
-		    flagValue es "3000".
-		    El switch encuentra que "size" es un flag reconocido, por lo que se ejecuta fs.Set("size", "3000").
-		    Esto asigna el valor 3000 al flag size.
+				Primera Iteración :
+				flagName es "size".
+				flagValue es "3000".
+				El switch encuentra que "size" es un flag reconocido, por lo que se ejecuta fs.Set("size", "3000").
+				Esto asigna el valor 3000 al flag size.
 
 	*/
 
@@ -132,63 +134,97 @@ func fn_mkdisk(params string) {
 	DiskManagement.Mkdisk(*size, *fit, *unit, *path)
 }
 
-func fn_fdisk(params string) {
-	fs := flag.NewFlagSet("fdisk", flag.ExitOnError)
-	size := fs.Int("size", 0, "Tamaño de la partición")
-	fit := fs.String("fit", "ff", "Ajuste")
-	unit := fs.String("unit", "m", "Unidad")
-	path := fs.String("path", "", "Ruta del disco")
-	name := fs.String("name", "", "Nombre de la partición")
+//--------------------Función para rmdisk--------------------
+func fn_rmdisk(params string, buffer io.Writer) {
+	fs := flag.NewFlagSet("rmdisk", flag.ExitOnError)
+	ruta := fs.String("path", "", "Ruta")
 
 	fs.Parse(os.Args[1:])
-
 	matches := re.FindAllStringSubmatch(params, -1)
+
+	for _, match := range matches {
+		nombreFlag := match[1]
+		valorFlag := strings.ToLower(match[2])
+		valorFlag = strings.Trim(valorFlag, "\"")
+
+		switch nombreFlag {
+		case "path":
+			fs.Set("path", valorFlag)
+		default:
+			fmt.Println("Error: Flag desconocida:", nombreFlag)
+			return
+		}
+	}
+
+	// Llamas a la función para borrar el disco aquí.
+	DiskManagement.Rmdisk(*ruta)
+}
+
+
+//--------------------Función para fdisk--------------------
+func fn_fdisk(input string, buffer io.Writer) {
+	// Definir flags
+	fs := flag.NewFlagSet("fdisk", flag.ExitOnError)
+	size := fs.Int("size", 0, "Tamaño")
+	path := fs.String("path", "", "Ruta")
+	name := fs.String("name", "", "Nombre")
+	unit := fs.String("unit", "m", "Unidad")
+	type_ := fs.String("type", "p", "Tipo")
+	fit := fs.String("fit", "", "Ajuste") // Dejar fit vacío por defecto
+
+	// Parsear los flags
+	fs.Parse(os.Args[1:])
+
+	// Encontrar los flags en el input
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	// Procesar el input
 	for _, match := range matches {
 		flagName := match[1]
 		flagValue := strings.ToLower(match[2])
+
 		flagValue = strings.Trim(flagValue, "\"")
 
 		switch flagName {
-		case "size", "fit", "unit", "path", "name":
+		case "size", "fit", "unit", "path", "name", "type":
 			fs.Set(flagName, flagValue)
 		default:
-			fmt.Println("Error: Flag desconocida")
+			fmt.Println("Error: Flag not found")
 		}
 	}
 
 	// Validaciones
 	if *size <= 0 {
-		fmt.Println("Error: El tamaño debe ser mayor a 0")
-		return
-	}
-
-	if *fit != "bf" && *fit != "ff" && *fit != "wf" {
-		fmt.Println("Error: Fit debe ser 'bf', 'ff' o 'wf'")
-		return
-	}
-
-	if *unit != "k" && *unit != "m" {
-		fmt.Println("Error: Unidad debe ser 'k' o 'm'")
+		fmt.Println("Error: Size must be greater than 0")
 		return
 	}
 
 	if *path == "" {
-		fmt.Println("Error: La ruta del disco es requerida")
+		fmt.Println("Error: Path is required")
 		return
 	}
 
-	if *name == "" {
-		fmt.Println("Error: Se requiere un nombre para la partición")
+	// Si no se proporcionó un fit, usar el valor predeterminado "w"
+	if *fit == "" {
+		*fit = "w"
+	}
+
+	// Validar fit (b/w/f)
+	if *fit != "b" && *fit != "f" && *fit != "w" {
+		fmt.Println("Error: Fit must be 'b', 'f', or 'w'")
 		return
 	}
 
-	// Convertir unidad a bytes
-	if *unit == "k" {
-		*size = *size * 1024
-	} else {
-		*size = *size * 1024 * 1024
+	if *unit != "k" && *unit != "m" {
+		fmt.Println("Error: Unit must be 'k' or 'm'")
+		return
 	}
 
-	// Llamar a la función de creación de partición lógica
-	DiskManagement.CreateLogicalPartition(*path, *size, *fit, *name)
+	if *type_ != "p" && *type_ != "e" && *type_ != "l" {
+		fmt.Println("Error: Type must be 'p', 'e', or 'l'")
+		return
+	}
+
+	// Llamar a la función
+	DiskManagement.Fdisk(*size, *path, *name, *unit, *type_, *fit)
 }

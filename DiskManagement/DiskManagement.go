@@ -34,6 +34,12 @@ func Mkdisk(size int, fit string, unit string, path string) {
 		return
 	}
 
+	// Validar la ruta (path)
+	if path == "" {
+		fmt.Fprintf(buffer, "Error MKDISK: La ruta del disco es obligatoria.\n")
+		return
+	}
+
 	// Create file
 	err := Utilities.CreateFile(path)
 	if err != nil {
@@ -79,19 +85,6 @@ func Mkdisk(size int, fit string, unit string, path string) {
 	formattedDate := currentTime.Format("2006-01-02")
 	copy(newMRB.CreationDate[:], formattedDate)
 
-	/*
-		newMRB.CreationDate[0] = '2'
-		newMRB.CreationDate[1] = '0'
-		newMRB.CreationDate[2] = '2'
-		newMRB.CreationDate[3] = '4'
-		newMRB.CreationDate[4] = '-'
-		newMRB.CreationDate[5] = '0'
-		newMRB.CreationDate[6] = '8'
-		newMRB.CreationDate[7] = '-'
-		newMRB.CreationDate[8] = '0'
-		newMRB.CreationDate[9] = '8'
-	*/
-
 	// Escribir el archivo
 	if err := Utilities.WriteObject(file, newMRB, 0); err != nil {
 		return
@@ -103,13 +96,30 @@ func Mkdisk(size int, fit string, unit string, path string) {
 		return
 	}
 
+	fmt.Println("----------------------------")
 	// Print object
 	Structs.PrintMBR(TempMBR)
+	fmt.Println("----------------------------")
 
 	// Cerrar el archivo
 	defer file.Close()
 
 	fmt.Println("======FIN MKDISK======")
+}
+
+func Rmdisk(ruta string) {
+	fmt.Fprintf(buffer, "RMDISK---------------------------------------------------------------------\n")
+	// Validar la ruta (path)
+	if ruta == "" {
+		fmt.Fprintf(buffer, "Error RMDISK: La ruta del disco es obligatoria.\n")
+		return
+	}
+	err := ManejoArchivo.EliminarArchivo(ruta, buffer)
+	if err != nil {
+		return
+	}
+	EliminarDiscoPorRuta(ruta, buffer)
+	fmt.Fprintf(buffer, "Disco eliminado con éxito en la ruta: %s.\n", ruta)
 }
 
 func CreateLogicalPartition(path string, size int, fit string, name string) {
