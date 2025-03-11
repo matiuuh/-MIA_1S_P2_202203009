@@ -1,21 +1,31 @@
 import { Component } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { FormsModule } from '@angular/forms'; // Importa FormsModule
-
+import { FormsModule } from '@angular/forms';
+import { HttpClientModule } from '@angular/common/http';
+import { AnalizadorService } from './servicios/analizador.service';
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule], // Agrega FormsModule a los imports
+  standalone: true,
+  imports: [FormsModule, HttpClientModule],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.css'
+  styleUrls: ['./app.component.css']
 })
 export class AppComponent {
   title = 'FrontProject';
   entrada: string = '';
   consola: string = '';
 
+  constructor(private analizadorService: AnalizadorService) {}
+
   ejecutar() {
-    this.consola = `Resultado: ${this.entrada}`;
+    this.analizadorService.analizarEntrada(this.entrada).subscribe({
+      next: (resp: any) => {
+        this.consola = resp.resultado;
+      },
+      error: (err) => {
+        this.consola = `Error: ${err.message}`;
+      }
+    });
   }
 
   limpiar() {

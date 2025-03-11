@@ -8,6 +8,9 @@ import (
 	"proyecto1/DiskManagement"
 	"regexp"
 	"strings"
+	"io"
+	"bytes"
+
 )
 
 var re = regexp.MustCompile(`-(\w+)=("[^"]+"|\S+)`)
@@ -24,6 +27,9 @@ func getCommandAndParams(input string) (string, string) {
 	parts := strings.Fields(input)
 	if len(parts) > 0 {
 		command := strings.ToLower(parts[0])
+		for i := 1; i < len(parts); i++ {
+			parts[i] = strings.ToLower(parts[i])
+		}
 		params := strings.Join(parts[1:], " ")
 		return command, params
 	}
@@ -34,34 +40,37 @@ func getCommandAndParams(input string) (string, string) {
 	params será "-size=3000 -unit=K -fit=BF -path=/home/bang/Disks/disk1.bin".*/
 }
 
-func Analyze() {
+//----------------Analizador de entrada----------------
+func Analyze(entrada string) string {
+	var buffer bytes.Buffer
+	scanner := bufio.NewScanner(strings.NewReader(entrada))
+	for scanner.Scan() {
 
-	for true {
-		var input string
-		fmt.Println("======================")
-		fmt.Println("Ingrese comando: ")
-
-		scanner := bufio.NewScanner(os.Stdin)
-		scanner.Scan()
-		input = scanner.Text()
-
+		input := scanner.Text()
+		
+		if len(input) == 0 || input[0] == '#' {
+			fmt.Fprintf(&buffer, "%s\n", input)
+			continue
+		}
+		input = strings.TrimSpace(input)
 		command, params := getCommandAndParams(input)
 
 		fmt.Println("Comando: ", command, " - ", "Parametro: ", params)
 
-		AnalyzeCommnad(command, params)
+		AnalyzeCommnad(command, params, &buffer)
 
 		//mkdisk -size=3000 -unit=K -fit=BF -path="/home/bang/Disks/disk1.bin"
 	}
+	return buffer.String()
 }
 
 //--------------------Analizador de tipo de comando--------------------
 func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 
 	if strings.Contains(command, "mkdisk") {
-		fn_mkdisk(paramsm, buffer)
+		fn_mkdisk(params, buffer)
 	} else if strings.Contains(command, "rmdisk") {
-		fn_rmdisk(params, buffer)
+		//fn_rmdisk(params, buffer)
 	} else if strings.Contains(command, "fdisk") {
 		fn_fdisk(params, buffer)
 	} else {
@@ -96,46 +105,38 @@ func fn_mkdisk(params string, buffer io.Writer) {
 		case "size", "fit", "unit", "path":
 			fs.Set(flagName, flagValue)
 		default:
-			fmt.Println("Error: Flag not found")
+			fmt.Fprintf(buffer, "Error: Flag not found")
+			return
 		}
 	}
 
-	/*
-				Primera Iteración :
-				flagName es "size".
-				flagValue es "3000".
-				El switch encuentra que "size" es un flag reconocido, por lo que se ejecuta fs.Set("size", "3000").
-				Esto asigna el valor 3000 al flag size.
-
-	*/
-
 	// Validaciones
 	if *size <= 0 {
-		fmt.Println("Error: Size must be greater than 0")
+		fmt.Fprintf(buffer, "Error: Size must be greater than 0")
 		return
 	}
 
 	if *fit != "bf" && *fit != "ff" && *fit != "wf" {
-		fmt.Println("Error: Fit must be 'bf', 'ff', or 'wf'")
+		fmt.Fprintf(buffer, "Error: Fit must be 'bf', 'ff', or 'wf'")
 		return
 	}
 
 	if *unit != "k" && *unit != "m" {
-		fmt.Println("Error: Unit must be 'k' or 'm'")
+		fmt.Fprintf(buffer, "Error: Unit must be 'k' or 'm'")
 		return
 	}
 
 	if *path == "" {
-		fmt.Println("Error: Path is required")
+		fmt.Fprintf(buffer, "Error: Path is required")
 		return
 	}
 
 	// LLamamos a la funcion
-	DiskManagement.Mkdisk(*size, *fit, *unit, *path)
+	DiskManagement.Mkdisk(*size, *fit, *unit, *path, buffer.(*bytes.Buffer))
 }
 
 //--------------------Función para rmdisk--------------------
-func fn_rmdisk(params string, buffer io.Writer) {
+/*func fn_rmdisk(params string, buffer io.Writer) {
 	fs := flag.NewFlagSet("rmdisk", flag.ExitOnError)
 	ruta := fs.String("path", "", "Ruta")
 
@@ -158,7 +159,7 @@ func fn_rmdisk(params string, buffer io.Writer) {
 
 	// Llamas a la función para borrar el disco aquí.
 	DiskManagement.Rmdisk(*ruta)
-}
+}*/
 
 
 //--------------------Función para fdisk--------------------
@@ -226,5 +227,5 @@ func fn_fdisk(input string, buffer io.Writer) {
 	}
 
 	// Llamar a la función
-	DiskManagement.Fdisk(*size, *path, *name, *unit, *type_, *fit)
+	DiskManagement.Fdisk(*size, *path, *name, *unit, *type_, *fit, buffer.(*bytes.Buffer))
 }
