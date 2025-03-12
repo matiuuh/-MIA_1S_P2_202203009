@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"proyecto1/DiskManagement"
+	"proyecto1/FileSystem"
 	"regexp"
 	"strings"
 	"io"
 	"bytes"
-
 )
 
 var re = regexp.MustCompile(`-(\w+)=("[^"]+"|\S+)`)
@@ -73,7 +73,11 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_rmdisk(params, buffer)
 	} else if strings.Contains(command, "fdisk") {
 		fn_fdisk(params, buffer)
-	} else {
+	} else if strings.Contains(command, "mount") {
+		fn_mount(params, buffer)
+	} else if strings.Contains(command, "mkfs") {
+		fn_mkfs(params)
+	}else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
 
@@ -161,7 +165,6 @@ func fn_rmdisk(params string, buffer io.Writer) {
 	DiskManagement.Rmdisk(*ruta, buffer.(*bytes.Buffer))
 }
 
-
 //--------------------Función para fdisk--------------------
 func fn_fdisk(input string, buffer io.Writer) {
 	// Definir flags
@@ -228,4 +231,68 @@ func fn_fdisk(input string, buffer io.Writer) {
 
 	// Llamar a la función
 	DiskManagement.Fdisk(*size, *path, *name, *unit, *type_, *fit, buffer.(*bytes.Buffer))
+}
+
+//--------------------Función para mount--------------------
+func fn_mount(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("mount", flag.ExitOnError)
+	path := fs.String("path", "", "Ruta")
+	name := fs.String("name", "", "Nombre")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		nameFlag := match[1]
+		valueFlag := strings.ToLower(match[2])
+
+		valueFlag = strings.Trim(valueFlag, "\"")
+
+		switch nameFlag {
+		case "path", "name":
+			fs.Set(nameFlag, valueFlag)
+		default:
+			fmt.Fprintf(buffer, "Error: El comando 'MOUNT' incluye parámetros no asociados.\n")
+			return
+		}
+	}
+	DiskManagement.Mount(*path, *name, buffer.(*bytes.Buffer))
+}
+
+func fn_mkfs(input string) {
+	fs := flag.NewFlagSet("mkfs", flag.ExitOnError)
+	id := fs.String("id", "", "Id")
+	type_ := fs.String("type", "", "Tipo")
+	fs_ := fs.String("fs", "2fs", "Fs")
+
+	// Parse the input string, not os.Args
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := match[2]
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		switch flagName {
+		case "id", "type", "fs":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag not found")
+		}
+	}
+
+	// Verifica que se hayan establecido todas las flags necesarias
+	if *id == "" {
+		fmt.Println("Error: id es un parámetro obligatorio.")
+		return
+	}
+
+	if *type_ == "" { //2fs 3fs
+		fmt.Println("Error: type es un parámetro obligatorio.")
+		return
+	}
+
+	// Llamar a la función
+	FileSystem.Mkfs(*id, *type_, *fs_)
 }

@@ -12,18 +12,52 @@ import (
 	"encoding/binary"
 )
 
-type ParticionMontada struct {
-	Ruta     string
-	Nombre   string
+//************ESTRUCTURAS************
+type MountedPartition struct {
+	Path     string
+	Name   	 string
 	ID       string
-	Estado   byte
+	Status   byte
 	LoggedIn bool
 }
 
-var ListaParticionesMontadas = make(map[string][]ParticionMontada)
+var MountedPartitions = make(map[string][]MountedPartition)
 
+//************************************
+
+//********************PARTICIONES MONTADAS********************
+// Función para imprimir las particiones montadas
+func PrintMountedPartitions(path string, buffer *bytes.Buffer) {
+	if len(MountedPartitions) == 0 {
+		fmt.Println("No hay particiones montadas.")
+		return
+	}
+	for DiscoID, partitions := range MountedPartitions {
+		if DiscoID == path {
+			fmt.Println("Disco:", DiscoID)
+			fmt.Println("---------------------------")
+			for _, Partition := range partitions {
+				loginStatus := "No"
+				if Partition.LoggedIn {
+					loginStatus = "Sí"
+				}
+				fmt.Printf("Nombre: %v, ID: %v, Ruta: %v, Estado: %c, LoggedIn: %v\n",
+					Partition.Name, Partition.ID, Partition.Path, Partition.Status, loginStatus)
+			}
+		}
+		fmt.Println("---------------------------")
+	}
+}
+
+// Función para obtener las particiones montadas
+func GetMountedPartitions() map[string][]MountedPartition {
+	return MountedPartitions
+}
+//****************************************************************
+
+//********************COMANDOS********************
 func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer ) {
-	fmt.Println("======INICIO MKDISK======")
+	fmt.Fprintf(buffer, "======INICIO MKDISK======\n")
 	fmt.Println("Size:", size)
 	fmt.Println("Fit:", fit)
 	fmt.Println("Unit:", unit)
@@ -84,7 +118,7 @@ func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer
 	for i := 0; i < size; i++ {
 		err := Utilities.WriteObject(file, byte(0), int64(i), buffer)
 		if err != nil {
-			fmt.Println("Error: ", err)
+			fmt.Fprintf(buffer, "Error: ", err)
 		}
 	}
 
@@ -118,7 +152,7 @@ func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer
 	// Cerrar el archivo
 	defer file.Close()
 
-	fmt.Println("======FIN MKDISK======")
+	fmt.Fprintf(buffer, "======FIN MKDISK======")
 }
 
 func Rmdisk(path string, buffer *bytes.Buffer) {
@@ -349,17 +383,156 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	defer file.Close()
 }
 
-//-----------------Metodos auxiliares-----------------
+func Mount(path string, name string, buffer *bytes.Buffer) {
+	fmt.Fprintf(buffer, "=========MOUNT=========\n")
+	fmt.Print(path)
+	// Validar la ruta (path)
+	if path == "" {
+		fmt.Fprintf(buffer, "Error MOUNT: La ruta del disco es obligatoria.\n")
+		return
+	}
+	// Validar el nombre (name)
+	if name == "" {
+		fmt.Fprintf(buffer, "Error MOUNT: El nombre de la partición es obligatorio.\n")
+		return
+	}
+	// Abrir archivo binario
+	file, err := Utilities.OpenFile(path, buffer)
+	if err != nil {
+		return
+	}
+	var TempMBR Structs.MRB
+	if err := Utilities.WriteObject(file, &TempMBR, 0, buffer); err != nil {
+		return
+	}
+
+	var ParticionExiste = false
+	var Particion Structs.Partition
+	var IndiceParticion int
+
+	NameBytes := [16]byte{}
+	copy(NameBytes[:], []byte(name))
+
+	for i := 0; i < 4; i++ {
+		if TempMBR.MbrPartitions[i].Type[0] == 'e' && bytes.Equal(TempMBR.MbrPartitions[i].Name[:], NameBytes[:]) {
+			fmt.Fprintf(buffer, "Error MOUNT: No se puede montar una partición extendida.\n")
+			return
+		}
+	}
+
+	for i := 0; i < 4; i++ {
+		if TempMBR.MbrPartitions[i].Type[0] == 'p' && bytes.Equal(TempMBR.MbrPartitions[i].Name[:], NameBytes[:]) {
+			Particion = TempMBR.MbrPartitions[i]
+			IndiceParticion = i
+			ParticionExiste = true
+			break
+		}
+	}
+
+	if !ParticionExiste {
+		fmt.Fprintf(buffer, "Error MOUNT: No se encontró la partición con el nombre especificado. Solo se pueden montar particiones primarias.\n")
+		return
+	}
+
+	if Particion.Status[0] == '1' {
+		fmt.Fprintf(buffer, "Error MOUNT: La partición ya está montada.\n")
+		return
+	}
+
+	DiscoID := GeneratorDiscID(path)
+	MountedPartitionsOnDisc := MountedPartitions[DiscoID]
+	var Letra byte
+
+	if len(MountedPartitionsOnDisc) == 0 {
+		if len(MountedPartitions) == 0 {
+			Letra = 'a'
+		} else {
+			UltimoDiscoID := getLastDiskID()
+			UltimaLetra := MountedPartitions[UltimoDiscoID][0].ID[len(MountedPartitions[UltimoDiscoID][0].ID)-1]
+			Letra = UltimaLetra + 1
+		}
+	} else {
+		Letra = MountedPartitionsOnDisc[0].ID[len(MountedPartitionsOnDisc[0].ID)-1]
+	}
+
+	carnet := "202203009"
+	UltimosDigitos := carnet[len(carnet)-2:]
+	IDParticion := fmt.Sprintf("%s%d%c", UltimosDigitos, IndiceParticion+1, Letra)
+
+	Particion.Status[0] = '1'
+	copy(Particion.ID[:], IDParticion)
+	TempMBR.MbrPartitions[IndiceParticion] = Particion
+	MountedPartitions[DiscoID] = append(MountedPartitions[DiscoID], MountedPartition{
+		Path:   path,
+		Name: name,
+		ID:     IDParticion,
+		Status: '1',
+	})
+	fmt.Fprintf(buffer, "Partición montada con éxito en la ruta: %s con el nombre: %s y ID: %s.\n", path, name, IDParticion)
+
+	if err := Utilities.WriteObject(file, TempMBR, 0, buffer); err != nil {
+		return
+	}
+	fmt.Println("---------------------------------------------")
+	PrintMountedPartitions(path, buffer)
+	fmt.Println("---------------------------------------------")
+	var TempMRB Structs.MRB
+	if err := Utilities.ReadObject(file, &TempMRB, 0, buffer); err != nil {
+		return
+	}
+	Structs.PrintMBR(TempMRB)
+	fmt.Println("---------------------------------------------")
+	defer file.Close()
+}
+//****************************************************
+
+
+//***********************Metodos auxiliares***********************
+
 // EliminarDiscoPorRuta Elimina un disco por su ruta
 func DeleteDiscWithPath(path string, buffer *bytes.Buffer) {
 	discID := GeneratorDiscID(path)
-	if _, existe := ListaParticionesMontadas[discID]; existe {
-		delete(ListaParticionesMontadas, discID)
+	if _, existe := MountedPartitions[discID]; existe {
+		delete(MountedPartitions, discID)
 		fmt.Fprintf(buffer, "El disco con ruta '%s' y sus particiones asociadas han sido eliminados.\n", path)
 	}
 }
 
+//--------------Funciones con discos montados----------------
 // GenerarDiscoID Genera un ID único para un disco
 func GeneratorDiscID(path string) string {
 	return strings.ToLower(path)
 }
+
+//función para obtener el último disco montado
+func getLastDiskID() string {
+	var UltimoDiscoID string
+	for DiscoID := range MountedPartitions {
+		UltimoDiscoID = DiscoID
+	}
+	return UltimoDiscoID
+}
+
+//-----------------------------------------------------
+func MarkPartitionAsLoggedIn(id string) {
+	for DiscoID, partitions := range MountedPartitions {
+		for i, Particion := range partitions {
+			if Particion.ID == id {
+				MountedPartitions[DiscoID][i].LoggedIn = true
+				return
+			}
+		}
+	}
+}
+
+func MarkPartitionAsLoggedOut(id string) {
+	for DiscoID, partitions := range MountedPartitions {
+		for i, Particion := range partitions {
+			if Particion.ID == id {
+				MountedPartitions[DiscoID][i].LoggedIn = false
+				return
+			}
+		}
+	}
+}
+
