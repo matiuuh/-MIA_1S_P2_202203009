@@ -12,6 +12,16 @@ import (
 	"encoding/binary"
 )
 
+type ParticionMontada struct {
+	Ruta     string
+	Nombre   string
+	ID       string
+	Estado   byte
+	LoggedIn bool
+}
+
+var ListaParticionesMontadas = make(map[string][]ParticionMontada)
+
 func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer ) {
 	fmt.Println("======INICIO MKDISK======")
 	fmt.Println("Size:", size)
@@ -111,8 +121,8 @@ func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer
 	fmt.Println("======FIN MKDISK======")
 }
 
-/*func Rmdisk(path string, buffer *bytes.Buffer) {
-	fmt.Fprintf(buffer, "R======RMDISK======n")
+func Rmdisk(path string, buffer *bytes.Buffer) {
+	fmt.Fprintf(buffer, "======RMDISK======\n")
 	// Validar la ruta (path)
 	if path == "" {
 		fmt.Fprintf(buffer, "Error RMDISK: La ruta del disco es obligatoria.\n")
@@ -124,7 +134,7 @@ func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer
 	}
 	DeleteDiscWithPath(path, buffer)
 	fmt.Fprintf(buffer, "Disco eliminado con éxito en la ruta: %s.\n", path)
-}*/
+}
 
 func Fdisk(size int, path string, name string, unit string, type_ string, fit string, buffer *bytes.Buffer) {
 	fmt.Fprintf(buffer, "======Start FDISK======\n")
@@ -341,15 +351,15 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 
 //-----------------Metodos auxiliares-----------------
 // EliminarDiscoPorRuta Elimina un disco por su ruta
-/*func DeleteDiscWithPath(path string, buffer *bytes.Buffer) {
+func DeleteDiscWithPath(path string, buffer *bytes.Buffer) {
 	discID := GeneratorDiscID(path)
 	if _, existe := ListaParticionesMontadas[discID]; existe {
 		delete(ListaParticionesMontadas, discID)
-		fmt.Fprintf(buffer, "El disco con ruta '%s' y sus particiones asociadas han sido eliminados.\n", ruta)
+		fmt.Fprintf(buffer, "El disco con ruta '%s' y sus particiones asociadas han sido eliminados.\n", path)
 	}
-}*/
+}
 
 // GenerarDiscoID Genera un ID único para un disco
-/*func GeneratorDiscID(path string) string {
+func GeneratorDiscID(path string) string {
 	return strings.ToLower(path)
-}*/
+}

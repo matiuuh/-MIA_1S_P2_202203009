@@ -70,7 +70,7 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 	if strings.Contains(command, "mkdisk") {
 		fn_mkdisk(params, buffer)
 	} else if strings.Contains(command, "rmdisk") {
-		//fn_rmdisk(params, buffer)
+		fn_rmdisk(params, buffer)
 	} else if strings.Contains(command, "fdisk") {
 		fn_fdisk(params, buffer)
 	} else {
@@ -136,7 +136,7 @@ func fn_mkdisk(params string, buffer io.Writer) {
 }
 
 //--------------------Función para rmdisk--------------------
-/*func fn_rmdisk(params string, buffer io.Writer) {
+func fn_rmdisk(params string, buffer io.Writer) {
 	fs := flag.NewFlagSet("rmdisk", flag.ExitOnError)
 	ruta := fs.String("path", "", "Ruta")
 
@@ -150,16 +150,16 @@ func fn_mkdisk(params string, buffer io.Writer) {
 
 		switch nombreFlag {
 		case "path":
-			fs.Set("path", valorFlag)
+			fs.Set(nombreFlag, valorFlag)
 		default:
-			fmt.Println("Error: Flag desconocida:", nombreFlag)
+			fmt.Println(buffer, "Error: comando 'rmdsik' inclyte parametros no asociados\n")
 			return
 		}
 	}
 
 	// Llamas a la función para borrar el disco aquí.
-	DiskManagement.Rmdisk(*ruta)
-}*/
+	DiskManagement.Rmdisk(*ruta, buffer.(*bytes.Buffer))
+}
 
 
 //--------------------Función para fdisk--------------------
@@ -169,9 +169,9 @@ func fn_fdisk(input string, buffer io.Writer) {
 	size := fs.Int("size", 0, "Tamaño")
 	path := fs.String("path", "", "Ruta")
 	name := fs.String("name", "", "Nombre")
-	unit := fs.String("unit", "m", "Unidad")
+	unit := fs.String("unit", "k", "Unidad") //por defecto en KiloBytes
 	type_ := fs.String("type", "p", "Tipo")
-	fit := fs.String("fit", "", "Ajuste") // Dejar fit vacío por defecto
+	fit := fs.String("fit", "wf", "Ajuste") // Dejar fit vacío por defecto
 
 	// Parsear los flags
 	fs.Parse(os.Args[1:])
