@@ -76,7 +76,7 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 	} else if strings.Contains(command, "mount") {
 		fn_mount(params, buffer)
 	} else if strings.Contains(command, "mkfs") {
-		fn_mkfs(params)
+		//fn_mkfs(params)
 	}else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
@@ -174,7 +174,7 @@ func fn_fdisk(input string, buffer io.Writer) {
 	name := fs.String("name", "", "Nombre")
 	unit := fs.String("unit", "k", "Unidad") //por defecto en KiloBytes
 	type_ := fs.String("type", "p", "Tipo")
-	fit := fs.String("fit", "wf", "Ajuste") // Dejar fit vacío por defecto
+	fit := fs.String("fit", "", "Ajuste") // Dejar fit vacío por defecto
 
 	// Parsear los flags
 	fs.Parse(os.Args[1:])
@@ -193,7 +193,8 @@ func fn_fdisk(input string, buffer io.Writer) {
 		case "size", "fit", "unit", "path", "name", "type":
 			fs.Set(flagName, flagValue)
 		default:
-			fmt.Println("Error: Flag not found")
+			fmt.Fprintf(buffer, "Error: El comando 'FDISK' incluye parámetros no asociados.\n")
+			return
 		}
 	}
 
@@ -213,7 +214,7 @@ func fn_fdisk(input string, buffer io.Writer) {
 		*fit = "w"
 	}
 
-	// Validar fit (b/w/f)
+		// Validar fit (b/w/f)
 	if *fit != "b" && *fit != "f" && *fit != "w" {
 		fmt.Println("Error: Fit must be 'b', 'f', or 'w'")
 		return
@@ -259,7 +260,7 @@ func fn_mount(input string, buffer io.Writer) {
 	DiskManagement.Mount(*path, *name, buffer.(*bytes.Buffer))
 }
 
-func fn_mkfs(input string) {
+func fn_mkfs(input string, buffer io.Writer) {
 	fs := flag.NewFlagSet("mkfs", flag.ExitOnError)
 	id := fs.String("id", "", "Id")
 	type_ := fs.String("type", "", "Tipo")
@@ -294,5 +295,5 @@ func fn_mkfs(input string) {
 	}
 
 	// Llamar a la función
-	FileSystem.Mkfs(*id, *type_, *fs_)
+	FileSystem.Mkfs(*id, *type_, *fs_, buffer.(*bytes.Buffer))
 }
