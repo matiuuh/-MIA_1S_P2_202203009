@@ -10,7 +10,36 @@ import (
 	"strings"
 )
 
-func Login(user string, pass string, id string) {
+// Estructura de partición de usuario
+type PartitionUser struct {
+	IDPartition string
+	IDUsuario   string
+}
+
+//----------------geters y seters----------------
+//Obtener el id de la particion
+func (Data *PartitionUser) GetIDPartition() string {
+	return Data.IDPartition
+}
+
+//Obtener el id del usuario
+func (Data *PartitionUser) GetIDUsuario() string {
+	return Data.IDUsuario
+}
+
+//Establecer el id de la particion
+func (Data *PartitionUser) SetIDPartition(IDPartition string) {
+	Data.IDPartition = IDPartition
+}
+
+//Establecer el id del usuario
+func (Data *PartitionUser) SetIDUsuario(IDUsuario string) {
+	Data.IDUsuario = IDUsuario
+}
+
+var Dato ParticionUsuario
+
+func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	fmt.Println("======Start LOGIN======")
 	fmt.Println("User:", user)
 	fmt.Println("Pass:", pass)
