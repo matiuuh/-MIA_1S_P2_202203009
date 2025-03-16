@@ -8,6 +8,7 @@ import (
 	"proyecto1/Structs"
 	"proyecto1/Utilities"
 	"strings"
+	"bytes"
 )
 
 // Estructura de partición de usuario
@@ -37,7 +38,7 @@ func (Data *PartitionUser) SetIDUsuario(IDUsuario string) {
 	Data.IDUsuario = IDUsuario
 }
 
-var Dato ParticionUsuario
+var Data PartitionUser
 
 func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	fmt.Println("======Start LOGIN======")
@@ -95,10 +96,10 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	var index int = -1
 	// Iterar sobre las particiones del MBR para encontrar la correcta
 	for i := 0; i < 4; i++ {
-		if TempMBR.Partitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.Partitions[i].Id[:]), id) {
+		if TempMBR.MbrPartitions[i].Size != 0 {
+			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
 				fmt.Println("Partition found")
-				if TempMBR.Partitions[i].Status[0] == '1' {
+				if TempMBR.MbrPartitions[i].Status[0] == '1' {
 					fmt.Println("Partition is mounted")
 					index = i
 				} else {
@@ -109,8 +110,6 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 			}
 		}
 	}
-
-	var index int = -1
 
 	// Iterar sobre las particiones del MBR para encontrar la correcta
 	for i := 0; i < 4; i++ {
@@ -133,7 +132,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 
 	var tempSuperblock Structs.Superblock
 	// Leer el Superblock desde el archivo binario
-	if err := Utilities.ReadObject(file, &tempSuperblock, int64(TempMBR.MbrPartitions[index].Start)); err != nil {
+	if err := Utilities.ReadObject(file, &tempSuperblock, int64(TempMBR.MbrPartitions[index].Start), buffer); err != nil {
 		fmt.Println("Error: No se pudo leer el Superblock:", err)
 		return
 	}
@@ -167,7 +166,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	}
 
 	// Imprimir información del Inodo
-	fmt.Println("Inode", crrInode.I_block)
+	fmt.Println("Inode", crrInode.IN_Block)
 
 	// Si las credenciales son correctas y marcamos como logueado
 	if login {
@@ -199,7 +198,7 @@ func InitSearch(path string, file *os.File, tempSuperblock Structs.Superblock, b
 
 	var Inode0 Structs.Inode
 	// Read object from bin file
-	if err := Utilities.ReadObject(file, &Inode0, int64(tempSuperblock.SB_Inode_Start)); err != nil {
+	if err := Utilities.ReadObject(file, &Inode0, int64(tempSuperblock.SB_Inode_Start), buffer); err != nil {
 		return -1
 	}
 
@@ -224,22 +223,22 @@ func SarchInodeByPath(StepsPath []string, Inode Structs.Inode, file *os.File, te
 	fmt.Println("========== SearchedName:", SearchedName)
 
 	// Iterate over i_blocks from Inode
-	for _, block := range Inode.I_block {
+	for _, block := range Inode.IN_Block {
 		if block != -1 {
 			if index < 13 {
 				//CASO DIRECTO
 
-				var crrFolderBlock Structs.Folderblock
+				var crrFolderBlock Structs.FolderBlock
 				// Read object from bin file
-				if err := Utilities.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.Folderblock{}))), buffer); err != nil {
+				if err := Utilities.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FolderBlock{}))), buffer); err != nil {
 					return -1
 				}
 
-				for _, folder := range crrFolderBlock.B_content {
+				for _, folder := range crrFolderBlock.B_Content {
 					// fmt.Println("Folder found======")
-					fmt.Println("Folder === Name:", string(folder.B_name[:]), "B_inodo", folder.B_Inode)
+					fmt.Println("Folder === Name:", string(folder.B_Name[:]), "B_inodo", folder.B_Inode)
 
-					if strings.Contains(string(folder.B_name[:]), SearchedName) {
+					if strings.Contains(string(folder.B_Name[:]), SearchedName) {
 
 						fmt.Println("len(StepsPath)", len(StepsPath), "StepsPath", StepsPath)
 						if len(StepsPath) == 0 {
@@ -268,24 +267,24 @@ func SarchInodeByPath(StepsPath []string, Inode Structs.Inode, file *os.File, te
 	return 0
 }
 
-func GetInodeFileData(Inode Structs.Inode, file *os.File, tempSuperblock Structs.Superblock) string {
+func GetInodeFileData(Inode Structs.Inode, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) string {
 	fmt.Println("======Start CONTENIDO DEL BLOQUE======")
 	index := int32(0)
 	// define content as a string
 	var content string
 
 	// Iterate over i_blocks from Inode
-	for _, block := range Inode.I_block {
+	for _, block := range Inode.IN_Block {
 		if block != -1 {
 			//Dentro de los directos
 			if index < 13 {
-				var crrFileBlock Structs.Fileblock
+				var crrFileBlock Structs.FileBlock
 				// Read object from bin file
-				if err := Utilities.ReadObject(file, &crrFileBlock, int64(tempSuperblock.S_block_start+block*int32(binary.Size(Structs.Fileblock{})))); err != nil {
+				if err := Utilities.ReadObject(file, &crrFileBlock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FileBlock{}))), buffer); err != nil {
 					return ""
 				}
 
-				content += string(crrFileBlock.B_content[:])
+				content += string(crrFileBlock.B_Content[:])
 
 			} else {
 				fmt.Print("indirectos")
@@ -298,32 +297,133 @@ func GetInodeFileData(Inode Structs.Inode, file *os.File, tempSuperblock Structs
 	return content
 }
 
+func LogOut(buffer *bytes.Buffer) {
+	fmt.Fprint(buffer, "==========LOGOUT==========\n")
+	mountedPartitions := DiskManagement.GetMountedPartitions()
+	var SesionActiva bool
+
+	if len(mountedPartitions) == 0 {
+		fmt.Fprintf(buffer, "Error LOGOUT: No hay ninguna partición montada.\n")
+		return
+	}
+
+	for _, Particiones := range mountedPartitions {
+		for _, Particion := range Particiones {
+			if Particion.LoggedIn {
+				SesionActiva = true
+				break
+			}
+		}
+		if SesionActiva {
+			break
+		}
+	}
+	if !SesionActiva {
+		fmt.Fprintf(buffer, "Error LOGOUT: No hay ninguna sesión activa.\n")
+		return
+	} else {
+		DiskManagement.MarkPartitionAsLoggedOut(Data.GetIDPartition())
+		fmt.Fprintf(buffer, "Sesión cerrada con éxito de la partición:%s\n", Data.GetIDPartition())
+	}
+	Data.SetIDPartition("")
+	Data.SetIDUsuario("")
+}
+
 // MKUSER
-func AppendToFileBlock(inode *Structs.Inode, newData string, file *os.File, superblock Structs.Superblock) error {
+func AppendToFileBlock(inode *Structs.Inode, newData string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer) error {
 	// Leer el contenido existente del archivo utilizando la función GetInodeFileData
-	existingData := GetInodeFileData(*inode, file, superblock)
+	existingData := GetInodeFileData(*inode, file, superblock, buffer)
 
 	// Concatenar el nuevo contenido
 	fullData := existingData + newData
 
 	// Asegurarse de que el contenido no exceda el tamaño del bloque
-	if len(fullData) > len(inode.I_block)*binary.Size(Structs.Fileblock{}) {
+	if len(fullData) > len(inode.IN_Block)*binary.Size(Structs.FileBlock{}) {
 		// Si el contenido excede, necesitas manejar bloques adicionales
 		return fmt.Errorf("el tamaño del archivo excede la capacidad del bloque actual y no se ha implementado la creación de bloques adicionales")
 	}
 
 	// Escribir el contenido actualizado en el bloque existente
-	var updatedFileBlock Structs.Fileblock
-	copy(updatedFileBlock.B_content[:], fullData)
-	if err := Utilities.WriteObject(file, updatedFileBlock, int64(superblock.S_block_start+inode.I_block[0]*int32(binary.Size(Structs.Fileblock{})))); err != nil {
+	var updatedFileBlock Structs.FileBlock
+	copy(updatedFileBlock.B_Content[:], fullData)
+	if err := Utilities.WriteObject(file, updatedFileBlock, int64(superblock.SB_Block_Start+inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{}))), buffer); err != nil {
 		return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
 	}
 
 	// Actualizar el tamaño del inodo
-	inode.I_size = int32(len(fullData))
-	if err := Utilities.WriteObject(file, *inode, int64(superblock.S_inode_start+inode.I_block[0]*int32(binary.Size(Structs.Inode{})))); err != nil {
+	inode.IN_Size = int32(len(fullData))
+	if err := Utilities.WriteObject(file, *inode, int64(superblock.SB_Inode_Start+inode.IN_Block[0]*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
 		return fmt.Errorf("error al actualizar el inodo: %v", err)
 	}
 
 	return nil
+}
+
+func Mkgrp(name string, buffer *bytes.Buffer) {
+	fmt.Fprint(buffer, "=============MKGRP=============\n")
+
+	mountedPartitions := DiskManagement.GetMountedPartitions()
+	var filePath string
+	var PartitionFound bool
+
+	// Buscar la partición donde se ha iniciado sesión
+	for _, Particiones := range mountedPartitions {
+		for _, Particion := range Particiones {
+			if Particion.ID == Data.GetIDPartition() {
+				filePath = Particion.Path
+				PartitionFound = true
+				break
+			}
+		}
+		if PartitionFound {
+			break
+		}
+	}
+
+	if !PartitionFound {
+		fmt.Fprintf(buffer, "Error MKGRP: No se encontró ninguna partición montada con el ID: %s\n", Data.GetIDPartition())
+		return
+	}
+
+	// Validación del usuario "root"
+	if Data.GetIDUsuario() != "root" {
+		fmt.Fprintf(buffer, "Error MKGRP: Solo el usuario 'root' puede crear grupos.\n")
+		return
+	}
+
+	// Abrir el archivo de la partición
+	file, err := Utilities.OpenFile(filePath, buffer)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR de la partición
+	var TempMBR Structs.MRB
+	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
+		return
+	}
+
+	// Buscar la partición correcta en el MBR
+	var index int = -1
+	for i := 0; i < 4; i++ {
+		if TempMBR.MbrPartitions[i].Size != 0 {
+			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), Data.GetIDPartition()) {
+				if TempMBR.MbrPartitions[i].Status[0] == '1' {
+					index = i
+				} else {
+					fmt.Fprintf(buffer, "Error MKGRP: La partición con ID %s no está montada.\n", Data.GetIDPartition())
+					return
+				}
+				break
+			}
+		}
+	}
+
+	if index == -1 {
+		fmt.Fprintf(buffer, "Error MKGRP: No se encontró ninguna partición con el ID: %s\n", Data.GetIDPartition())
+		return
+	}
+
+	fmt.Fprintf(buffer, "Grupo '%s' creado exitosamente.\n", name)
 }

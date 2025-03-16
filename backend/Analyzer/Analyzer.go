@@ -7,6 +7,7 @@ import (
 	"os"
 	"proyecto1/DiskManagement"
 	"proyecto1/FileSystem"
+	"proyecto1/User"
 	"regexp"
 	"strings"
 	"io"
@@ -76,8 +77,10 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 	} else if strings.Contains(command, "mount") {
 		fn_mount(params, buffer)
 	} else if strings.Contains(command, "mkfs") {
-		//fn_mkfs(params)
-	}else {
+		fn_mkfs(params, buffer)
+	} else if strings.Contains(command, "login") {
+		fn_mkfs(params, buffer)
+	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
 
@@ -260,6 +263,7 @@ func fn_mount(input string, buffer io.Writer) {
 	DiskManagement.Mount(*path, *name, buffer.(*bytes.Buffer))
 }
 
+//--------------------Función para mkfs--------------------
 func fn_mkfs(input string, buffer io.Writer) {
 	fs := flag.NewFlagSet("mkfs", flag.ExitOnError)
 	id := fs.String("id", "", "Id")
@@ -296,4 +300,32 @@ func fn_mkfs(input string, buffer io.Writer) {
 
 	// Llamar a la función
 	FileSystem.Mkfs(*id, *type_, *fs_, buffer.(*bytes.Buffer))
+}
+
+//--------------------Función para login--------------------
+func fn_login(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("login", flag.ExitOnError)
+	user := fs.String("user", "", "Usuario")
+	pass := fs.String("pass", "", "Contraseña")
+	id := fs.String("id", "", "Id")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := match[2]
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		switch flagName {
+		case "user", "pass", "id":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Println("Error: Flag not found")
+		}
+	}
+
+	User.Login(*user, *pass, *id, buffer.(*bytes.Buffer))
+
 }
