@@ -183,7 +183,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	fmt.Println("======End LOGIN======")
 }
 
-func InitSearch(path string, file *os.File, tempSuperblock Structs.Superblock) int32 {
+func InitSearch(path string, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) int32 {
 	fmt.Println("======Start BUSQUEDA INICIAL ======")
 	fmt.Println("path:", path)
 	// path = "/ruta/nueva"
@@ -199,13 +199,13 @@ func InitSearch(path string, file *os.File, tempSuperblock Structs.Superblock) i
 
 	var Inode0 Structs.Inode
 	// Read object from bin file
-	if err := Utilities.ReadObject(file, &Inode0, int64(tempSuperblock.S_inode_start)); err != nil {
+	if err := Utilities.ReadObject(file, &Inode0, int64(tempSuperblock.SB_Inode_Start)); err != nil {
 		return -1
 	}
 
 	fmt.Println("======End BUSQUEDA INICIAL======")
 
-	return SarchInodeByPath(StepsPath, Inode0, file, tempSuperblock)
+	return SarchInodeByPath(StepsPath, Inode0, file, tempSuperblock, buffer)
 }
 
 // stack
@@ -216,7 +216,7 @@ func pop(s *[]string) string {
 	return last
 }
 
-func SarchInodeByPath(StepsPath []string, Inode Structs.Inode, file *os.File, tempSuperblock Structs.Superblock) int32 {
+func SarchInodeByPath(StepsPath []string, Inode Structs.Inode, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) int32 {
 	fmt.Println("======Start BUSQUEDA INODO POR PATH======")
 	index := int32(0)
 	SearchedName := strings.Replace(pop(&StepsPath), " ", "", -1)
@@ -231,28 +231,28 @@ func SarchInodeByPath(StepsPath []string, Inode Structs.Inode, file *os.File, te
 
 				var crrFolderBlock Structs.Folderblock
 				// Read object from bin file
-				if err := Utilities.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.S_block_start+block*int32(binary.Size(Structs.Folderblock{})))); err != nil {
+				if err := Utilities.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.Folderblock{}))), buffer); err != nil {
 					return -1
 				}
 
 				for _, folder := range crrFolderBlock.B_content {
 					// fmt.Println("Folder found======")
-					fmt.Println("Folder === Name:", string(folder.B_name[:]), "B_inodo", folder.B_inodo)
+					fmt.Println("Folder === Name:", string(folder.B_name[:]), "B_inodo", folder.B_Inode)
 
 					if strings.Contains(string(folder.B_name[:]), SearchedName) {
 
 						fmt.Println("len(StepsPath)", len(StepsPath), "StepsPath", StepsPath)
 						if len(StepsPath) == 0 {
 							fmt.Println("Folder found======")
-							return folder.B_inodo
+							return folder.B_Inode
 						} else {
 							fmt.Println("NextInode======")
 							var NextInode Structs.Inode
 							// Read object from bin file
-							if err := Utilities.ReadObject(file, &NextInode, int64(tempSuperblock.S_inode_start+folder.B_inodo*int32(binary.Size(Structs.Inode{})))); err != nil {
+							if err := Utilities.ReadObject(file, &NextInode, int64(tempSuperblock.SB_Inode_Start+folder.B_Inode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
 								return -1
 							}
-							return SarchInodeByPath(StepsPath, NextInode, file, tempSuperblock)
+							return SarchInodeByPath(StepsPath, NextInode, file, tempSuperblock, buffer)
 						}
 					}
 				}
