@@ -1,14 +1,28 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"encoding/json"
 	"proyecto1/Analyzer"
 )
 
+func enableCORS(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
 func analyzeHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(&w)
+
+	// Manejar solicitud OPTIONS para CORS
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	var body struct {
 		Entrada string `json:"entrada"`
 	}

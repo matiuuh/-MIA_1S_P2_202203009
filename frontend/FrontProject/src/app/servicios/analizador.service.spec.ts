@@ -1,16 +1,17 @@
-import { TestBed } from '@angular/core/testing';
+import { Injectable } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { Observable } from 'rxjs';
 
-import { AnalizadorService } from './analizador.service';
+@Injectable({
+  providedIn: 'root'
+})
+export class AnalizadorService {
+  private apiUrl = 'http://localhost:8000/analyze'; // URL del backend
 
-describe('AnalizadorService', () => {
-  let service: AnalizadorService;
+  constructor(private http: HttpClient) {}
 
-  beforeEach(() => {
-    TestBed.configureTestingModule({});
-    service = TestBed.inject(AnalizadorService);
-  });
-
-  it('should be created', () => {
-    expect(service).toBeTruthy();
-  });
-});
+  analizarEntrada(entrada: string): Observable<{ resultado: string }> {
+    const body = { entrada };  // JSON con la entrada
+    return this.http.post<{ resultado: string }>(this.apiUrl, body);
+  }
+}
