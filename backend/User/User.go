@@ -52,13 +52,13 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	var login bool = false
 
 	for _, partitions := range mountedPartitions {
-		for _, partition := range partitions {
-			if partition.ID == id && partition.LoggedIn { // Verifica si ya está logueado
-				fmt.Println("Ya existe un usuario logueado!")
+		for _, Partition := range partitions {
+			if Partition.ID == id && Partition.LoggedIn { // Verifica si ya está logueado
+				fmt.Fprintf(buffer, "Error LOGIN: Ya existe un usuario logueado en la partición:%s\n", id)
 				return
 			}
-			if partition.ID == id { // Encuentra la partición correcta
-				filepath = partition.Path
+			if Partition.ID == id { // Encuentra la partición correcta
+				filepath = Partition.Path
 				partitionFound = true
 				break
 			}
@@ -69,12 +69,12 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	}
 
 	if !partitionFound {
-		fmt.Println("Error: No se encontró ninguna partición montada con el ID proporcionado")
+		fmt.Fprintf(buffer, "Error en LOGIN: No se encontró ninguna partición montada con el ID proporcionado %s\n", id)
 		return
 	}
 
 	// Abrir archivo binario
-	file, err := Utilities.OpenFile(filepath)
+	file, err := Utilities.OpenFile(filepath, buffer)
 	if err != nil {
 		fmt.Println("Error: No se pudo abrir el archivo:", err)
 		return
@@ -83,7 +83,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 
 	var TempMBR Structs.MRB
 	// Leer el MBR desde el archivo binario
-	if err := Utilities.ReadObject(file, &TempMBR, 0); err != nil {
+	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
 		fmt.Println("Error: No se pudo leer el MBR:", err)
 		return
 	}
@@ -110,32 +110,46 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 		}
 	}
 
-	if index != -1 {
-		Structs.PrintPartition(TempMBR.Partitions[index])
-	} else {
-		fmt.Println("Partition not found")
-		return
+	var index int = -1
+
+	// Iterar sobre las particiones del MBR para encontrar la correcta
+	for i := 0; i < 4; i++ {
+		if TempMBR.MbrPartitions[i].Size != 0 {
+			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
+				if TempMBR.MbrPartitions[i].Status[0] == '1' {
+					index = i
+				} else {
+					return
+				}
+				break
+			}
+		}
 	}
+
+	if index == -1 {
+		fmt.Fprintf(buffer, "Error en LOGIN: no se encontro nunguna particion con el ID %s\n", id)
+		return
+		}
 
 	var tempSuperblock Structs.Superblock
 	// Leer el Superblock desde el archivo binario
-	if err := Utilities.ReadObject(file, &tempSuperblock, int64(TempMBR.Partitions[index].Start)); err != nil {
+	if err := Utilities.ReadObject(file, &tempSuperblock, int64(TempMBR.MbrPartitions[index].Start)); err != nil {
 		fmt.Println("Error: No se pudo leer el Superblock:", err)
 		return
 	}
 
 	// Buscar el archivo de usuarios /users.txt -> retorna índice del Inodo
-	indexInode := InitSearch("/users.txt", file, tempSuperblock)
+	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
 
 	var crrInode Structs.Inode
 	// Leer el Inodo desde el archivo binario
-	if err := Utilities.ReadObject(file, &crrInode, int64(tempSuperblock.S_inode_start+indexInode*int32(binary.Size(Structs.Inode{})))); err != nil {
+	if err := Utilities.ReadObject(file, &crrInode, int64(tempSuperblock.SB_Inode_Start+indexInode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
 		fmt.Println("Error: No se pudo leer el Inodo:", err)
 		return
 	}
 
 	// Leer datos del archivo
-	data := GetInodeFileData(crrInode, file, tempSuperblock)
+	data := GetInodeFileData(crrInode, file, tempSuperblock, buffer)
 
 	// Dividir la cadena en líneas
 	lines := strings.Split(data, "\n")
@@ -157,9 +171,14 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 
 	// Si las credenciales son correctas y marcamos como logueado
 	if login {
+		fmt.Fprintf(buffer, "Usuario logueado con éxito en la partición:%s\n", id)
 		fmt.Println("Usuario logueado con exito")
 		DiskManagement.MarkPartitionAsLoggedIn(id) // Marcar la partición como logueada
 	}
+
+	// Establecer la partición y el usuario en la estructura de usuario
+	Data.SetIDPartition(id)
+	Data.SetIDUsuario(user)
 
 	fmt.Println("======End LOGIN======")
 }
