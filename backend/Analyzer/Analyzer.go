@@ -12,6 +12,7 @@ import (
 	"strings"
 	"io"
 	"bytes"
+	"strconv"
 )
 
 var re = regexp.MustCompile(`-(\w+)=("[^"]+"|\S+)`)
@@ -79,7 +80,13 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 	} else if strings.Contains(command, "mkfs") {
 		fn_mkfs(params, buffer)
 	} else if strings.Contains(command, "login") {
-		fn_mkfs(params, buffer)
+		fn_login(params, buffer)
+	} else if strings.Contains(command, "logout") {
+		fn_logout(params, buffer)
+	} else if strings.Contains(command, "cat") {
+		fn_cat(params, buffer)
+	} else if strings.Contains(command, "mkgrp") {
+		fn_mkgrp(params, buffer)
 	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
@@ -328,4 +335,78 @@ func fn_login(input string, buffer io.Writer) {
 
 	User.Login(*user, *pass, *id, buffer.(*bytes.Buffer))
 
+}
+
+//--------------------Función para logout--------------------
+func fn_logout(input string, buffer io.Writer) {
+	input = strings.TrimSpace(input)
+	if len(input) > 0 {
+		fmt.Fprintf(buffer, "Error: El comando 'LOGOUT' incluye parámetros no asociados.\n")
+		return
+	}
+	User.LogOut(buffer.(*bytes.Buffer))
+}
+
+//--------------------Función para cat--------------------
+func fn_cat(params string, buffer io.Writer) {
+	files := make(map[int]string)
+	matches := re.FindAllStringSubmatch(params, -1)
+
+	for _, match := range matches {
+		flagName := match[1]
+		flagValue := strings.ToLower(match[2])
+
+		flagValue = strings.Trim(flagValue, "\"")
+
+		if strings.HasPrefix(flagName, "file") {
+
+			NUmber, err := strconv.Atoi(strings.TrimPrefix(flagName, "file"))
+			if err != nil {
+				fmt.Fprintf(buffer, "Error: Nombre de archivo inválido")
+				return
+			}
+			files[NUmber] = flagValue
+		} else {
+			fmt.Fprintf(buffer, "Error: Flag not found")
+		}
+	}
+	var orden []string
+	for i := 1; i <= len(files); i++ {
+		if file, exists := files[i]; exists {
+			orden = append(orden, file)
+		} else {
+			fmt.Fprintf(buffer, "Error: Falta un archivo en la secuencia")
+			return
+		}
+	}
+	if len(orden) == 0 {
+		fmt.Fprintf(buffer, "Error: No se encontraron archivos")
+		return
+	}
+	FileSystem.CAT(orden, buffer.(*bytes.Buffer))
+}
+
+//--------------------Función para mkgrp--------------------
+func fn_mkgrp(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("mkgrp ", flag.ExitOnError)
+	nombre := fs.String("name", "", "Nombre")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		nombreFlag := match[1]
+		valorFlag := strings.ToLower(match[2])
+
+		valorFlag = strings.Trim(valorFlag, "\"")
+
+		switch nombreFlag {
+		case "name":
+			fs.Set(nombreFlag, valorFlag)
+		default:
+			fmt.Fprintf(buffer, "Error: El comando 'MKGRP' incluye parámetros no asociados.\n")
+			return
+		}
+	}
+	User.Mkgrp(*nombre, buffer.(*bytes.Buffer))
 }
