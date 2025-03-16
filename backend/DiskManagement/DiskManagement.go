@@ -484,6 +484,28 @@ func Mount(path string, name string, buffer *bytes.Buffer) {
 	fmt.Println("---------------------------------------------")
 	defer file.Close()
 }
+
+func List(buffer *bytes.Buffer) {
+	fmt.Fprintf(buffer, "LIST---------------------------------------------------------------------\n")
+	if len(MountedPartitions) == 0 {
+		fmt.Fprintf(buffer, "No hay particiones montadas.")
+		return
+	}
+	for DiscoID, partitions := range MountedPartitions {
+		fmt.Fprintf(buffer, "Disco: %s\n", DiscoID)
+		fmt.Fprintf(buffer, "---------------------------\n")
+		for _, Particion := range partitions {
+			loginStatus := "No"
+			if Particion.LoggedIn {
+				loginStatus = "Sí"
+			}
+			fmt.Fprintf(buffer, "Nombre: %s, ID: %s, Ruta: %s, Estado: %c, LoggedIn: %s\n",
+				Particion.Name, Particion.ID, Particion.Path, Particion.Status, loginStatus)
+		}
+		fmt.Fprintf(buffer, "---------------------------\n")
+	}
+}
+
 //****************************************************
 
 
