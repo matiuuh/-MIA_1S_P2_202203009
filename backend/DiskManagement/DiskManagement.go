@@ -220,13 +220,23 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
 		return
 	}
+	
+	// Inicializar el archivo con ceros
+	/*for i := 0; i < size; i++ {
+		err := Utilities.WriteObject(archivo, byte(0), int64(i), buffer)
+		if err != nil {
+			return
+		}
+	}
+
+	
 
 	for i := 0; i < 4; i++ {
 		if strings.Contains(string(TempMBR.MbrPartitions[i].Name[:]), name) {
 			fmt.Fprintf(buffer, "Error FDISK: El nombre: %s ya está en uso en las particiones.\n", name)
 			return
 		}
-	}
+	}*/
 
 	var ContadorPrimaria, ContadorExtendida, TotalParticiones int
 	var EspacioUtilizado int32 = 0
@@ -358,7 +368,7 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 		EBRActual := ParticionExtendida.Start
 		for {
 			var EBRTemp Structs.EBR
-			if err := Utilities.WriteObject(file, &EBRTemp, int64(EBRActual), buffer); err != nil {
+			if err := Utilities.ReadObject(file, &EBRTemp, int64(EBRActual), buffer); err != nil {
 				fmt.Fprintf(buffer, "Error leyendo EBR: %v\n", err)
 				return
 			}

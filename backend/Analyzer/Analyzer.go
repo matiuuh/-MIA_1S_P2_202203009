@@ -13,6 +13,8 @@ import (
 	"io"
 	"bytes"
 	"strconv"
+	"proyecto1/Structs"
+	"proyecto1/Utilities"
 )
 
 var re = regexp.MustCompile(`-(\w+)=("[^"]+"|\S+)`)
@@ -242,8 +244,23 @@ func fn_fdisk(input string, buffer io.Writer) {
 		return
 	}
 
+	// Abrir disco para mostrar estado del MBR luego de fdisk
+	file, err := Utilities.OpenFile(*path, buffer.(*bytes.Buffer))
+	if err != nil {
+		fmt.Fprintf(buffer, "Error abriendo disco después de FDISK: %s\n", err)
+		return
+	}
+	defer file.Close()
+
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0, buffer.(*bytes.Buffer)); err != nil {
+		fmt.Fprintf(buffer, "Error leyendo MBR después de FDISK: %s\n", err)
+		return
+	}
+
 	// Llamar a la función
 	DiskManagement.Fdisk(*size, *path, *name, *unit, *type_, *fit, buffer.(*bytes.Buffer))
+	Structs.PrintMBRP(mbr)
 }
 
 //--------------------Función para mount--------------------
@@ -422,3 +439,12 @@ func fn_list(input string, buffer io.Writer) {
 	}
 	DiskManagement.List(buffer.(*bytes.Buffer))
 }
+
+//rmgrp
+//mkusr
+//rmusr
+//chgrp
+//mkdir
+//rep
+//mkfile
+//mounted

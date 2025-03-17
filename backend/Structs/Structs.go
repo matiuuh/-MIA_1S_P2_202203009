@@ -3,6 +3,7 @@ package Structs
 import (
 	"fmt"
 	"bytes"
+	"strings"
 )
 
 //*********MBR*********
@@ -25,6 +26,26 @@ func PrintMBR(data MRB) {
 		data.Signature))
 
 }
+// En Structs.go
+func PrintMBRP(mbr MRB) {
+	fmt.Printf("Tamaño disco: %d bytes\n", mbr.MbrSize)
+	fmt.Printf("Fit del disco: %c\n", mbr.Fit)
+	fmt.Printf("Fecha creación: %s\n", strings.Trim(string(mbr.CreationDate[:]), "\x00"))
+	fmt.Printf("Signature: %d\n", mbr.Signature)
+
+	for i, part := range mbr.MbrPartitions {
+		fmt.Printf("\n--- Partición %d ---\n", i+1)
+		fmt.Printf("Estado: %c\n", part.Status)
+		fmt.Printf("Tipo: %c\n", part.Type)
+		fmt.Printf("Ajuste: %c\n", part.Fit)
+		fmt.Printf("Inicio (byte): %d\n", part.Start)
+		fmt.Printf("Tamaño: %d bytes\n", part.Size)
+		fmt.Printf("Nombre: %s\n", strings.Trim(string(part.Name[:]), "\x00"))
+		fmt.Printf("Correlativo: %d\n", part.Correlative)
+		fmt.Printf("ID: %s\n", strings.Trim(string(part.ID[:]), "\x00"))
+	}
+}
+
 
 //*********PARTITION*********
 type Partition struct {
