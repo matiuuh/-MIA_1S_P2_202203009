@@ -75,6 +75,8 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_mkdisk(params, buffer)
 	} else if strings.Contains(command, "rmdisk") {
 		fn_rmdisk(params, buffer)
+	} else if strings.Contains(command, "mounted") {
+		fn_mounted(buffer)
 	} else if strings.Contains(command, "fdisk") {
 		fn_fdisk(params, buffer)
 	} else if strings.Contains(command, "mount") {
@@ -439,6 +441,24 @@ func fn_list(input string, buffer io.Writer) {
 	}
 	DiskManagement.List(buffer.(*bytes.Buffer))
 }
+
+//--------------------Función para comando_mounted--------------------
+func fn_mounted(buffer io.Writer) {
+	fmt.Fprintf(buffer, "===== PARTICIONES MONTADAS =====\n")
+	if len(DiskManagement.MountedPartitions) == 0 {
+		fmt.Fprintf(buffer, "No hay particiones montadas.\n")
+		return
+	}
+
+	// Iterar sobre particiones montadas e imprimir sus IDs
+	for _, partitions := range DiskManagement.MountedPartitions {
+		for _, particion := range partitions {
+			fmt.Fprintf(buffer, "- %s\n", particion.ID)
+		}
+	}
+	fmt.Fprintf(buffer, "================================\n")
+}
+
 
 //rmgrp
 //mkusr
