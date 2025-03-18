@@ -380,6 +380,7 @@ func Mkgrp(name string, buffer *bytes.Buffer) {
 	// Abrir el archivo de la partición
 	file, err := Utilities.OpenFile(filePath, buffer)
 	if err != nil {
+		fmt.Fprintf(buffer, "Error MKGRP: no se pudo abrir disco: %v\n", err)
 		return
 	}
 	defer file.Close()
@@ -387,27 +388,67 @@ func Mkgrp(name string, buffer *bytes.Buffer) {
 	// Leer el MBR de la partición
 	var TempMBR Structs.MRB
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error MKGRP: No se pudo leer el MBR: %v\n", err)
 		return
 	}
 
-	// Buscar la partición correcta en el MBR
-	var index int = -1
-	for i := 0; i < 4; i++ {
-		if TempMBR.MbrPartitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), Data.GetIDPartition()) {
-				if TempMBR.MbrPartitions[i].Status[0] == '1' {
-					index = i
-				} else {
-					fmt.Fprintf(buffer, "Error MKGRP: La partición con ID %s no está montada.\n", Data.GetIDPartition())
-					return
-				}
-				break
+	var partitionIndex int = -1
+	for i, part := range TempMBR.MbrPartitions {
+		if strings.Trim(string(part.ID[:]), "\x00") == Data.GetIDPartition() && part.Status[0] == '1' {
+			partitionIndex = i
+			break
+		}
+	}
+	if partitionIndex == -1 {
+		fmt.Fprintf(buffer, "Error MKGRP: La partición no está montada o no existe.\n")
+		return
+	}
+
+	var tempSuperblock Structs.Superblock
+	sbStart := int64(TempMBR.MbrPartitions[partitionIndex].Start)
+	if err := Utilities.ReadObject(file, &tempSuperblock, sbStart, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error MKGRP: No se pudo leer el Superblock: %v\n", err)
+		return
+	}
+
+	// Buscar archivo /users.txt (obtienes índice de Inodo)
+	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
+	if indexInode == -1 {
+		fmt.Fprintf(buffer, "Error MKGRP: No se encontró el archivo /users.txt\n")
+		return
+	}
+
+	var usersInode Structs.Inode
+	inodePos := int64(tempSuperblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &usersInode, inodePos, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error MKGRP: No se pudo leer el Inodo: %v\n", err)
+		return
+	}
+
+	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
+	lines := strings.Split(data, "\n")
+
+	var groupID int = 1
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) == 3 && fields[1] == "G" {
+			if fields[2] == name {
+				fmt.Fprintf(buffer, "Error MKGRP: El grupo '%s' ya existe.\n", name)
+				return
 			}
+			groupID++
 		}
 	}
 
-	if index == -1 {
-		fmt.Fprintf(buffer, "Error MKGRP: No se encontró ninguna partición con el ID: %s\n", Data.GetIDPartition())
+	// Añadir el nuevo grupo al archivo claramente
+	newGroup := fmt.Sprintf("%d,G,%s\n", groupID, name)
+
+	err = AppendToFileBlock(&usersInode, newGroup, file, tempSuperblock, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error MKGRP: Al escribir nuevo grupo: %v\n", err)
 		return
 	}
 
