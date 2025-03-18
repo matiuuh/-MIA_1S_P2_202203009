@@ -93,6 +93,8 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_mkgrp(params, buffer)
 	} else if strings.Contains(command, "list") {
 		fn_list(params, buffer)
+	} else if strings.Contains(command, "mkusr") {
+		fn_mkusr(params, buffer)
 	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
@@ -459,6 +461,35 @@ func fn_mounted(buffer io.Writer) {
 	fmt.Fprintf(buffer, "================================\n")
 }
 
+//--------------------Función para mkusr--------------------
+func fn_mkusr(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("mkusr", flag.ExitOnError)
+	user := fs.String("user", "", "Usuario")
+	pass := fs.String("pass", "", "Contraseña")
+	grp := fs.String("grp", "", "Grupo")
+
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := strings.ToLower(match[1])
+		flagValue := strings.Trim(match[2], "\"")
+
+		switch flagName {
+		case "user", "pass", "grp":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Fprintf(buffer, "Error: El comando 'MKUSR' incluye parámetros no asociados.\n")
+			return
+		}
+	}
+
+	if *user == "" || *pass == "" || *grp == "" {
+		fmt.Fprintf(buffer, "Error: MKUSR requiere obligatoriamente parámetros -user, -pass y -grp.\n")
+		return
+	}
+
+	User.Mkusr(*user, *pass, *grp, buffer.(*bytes.Buffer))
+}
 
 //rmgrp
 //mkusr

@@ -344,6 +344,7 @@ func AppendToFileBlock(inode *Structs.Inode, newData string, file *os.File, supe
 	return nil
 }
 
+//--------------------MKGRP--------------------
 func Mkgrp(name string, buffer *bytes.Buffer) {
 	fmt.Fprint(buffer, "=============MKGRP=============\n")
 
@@ -452,4 +453,133 @@ func Mkgrp(name string, buffer *bytes.Buffer) {
 	}
 
 	fmt.Fprintf(buffer, "Grupo '%s' creado exitosamente.\n", name)
+}
+
+//--------------------MKUSR--------------------
+func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
+	fmt.Fprint(buffer, "=============MKUSR=============\n")
+
+	if Data.GetIDUsuario() != "root" {
+		fmt.Fprintf(buffer, "Error MKUSR: Solo 'root' puede crear usuarios.\n")
+		return
+	}
+
+	// Validación longitud máxima
+	if len(user) > 10 {
+		fmt.Fprintf(buffer, "Error MKUSR: Nombre del usuario máximo 10 caracteres.\n")
+		return
+	}
+	if len(pass) > 10 {
+		fmt.Fprintf(buffer, "Error MKUSR: Contraseña máximo 10 caracteres.\n")
+		return
+	}
+	if len(grp) > 10 {
+		fmt.Fprintf(buffer, "Error MKUSR: Nombre del grupo máximo 10 caracteres.\n")
+		return
+	}
+
+	mountedPartitions := DiskManagement.GetMountedPartitions()
+	var filePath string
+	var partitionFound bool
+
+	for _, Particiones := range mountedPartitions {
+		for _, Particion := range Particiones {
+			if Particion.ID == Data.GetIDPartition() {
+				filePath = Particion.Path
+				partitionFound = true
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Fprintf(buffer, "Error MKUSR: No se encontró partición montada.\n")
+		return
+	}
+
+	file, err := Utilities.OpenFile(filePath, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error MKUSR: No se pudo abrir disco: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	var TempMBR Structs.MRB
+	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error MKUSR: No se pudo leer el MBR: %v\n", err)
+		return
+	}
+
+	var partitionIndex int = -1
+	for i, part := range TempMBR.MbrPartitions {
+		if strings.Trim(string(part.ID[:]), "\x00") == Data.GetIDPartition() && part.Status[0] == '1' {
+			partitionIndex = i
+			break
+		}
+	}
+	if partitionIndex == -1 {
+		fmt.Fprintf(buffer, "Error MKUSR: Partición no montada o inexistente.\n")
+		return
+	}
+
+	var tempSuperblock Structs.Superblock
+	sbStart := int64(TempMBR.MbrPartitions[partitionIndex].Start)
+	if err := Utilities.ReadObject(file, &tempSuperblock, sbStart, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error MKUSR: No se pudo leer Superblock: %v\n", err)
+		return
+	}
+
+	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
+	if indexInode == -1 {
+		fmt.Fprintf(buffer, "Error MKUSR: No se encontró archivo /users.txt\n")
+		return
+	}
+
+	var usersInode Structs.Inode
+	inodePos := int64(tempSuperblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &usersInode, inodePos, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error MKUSR: No se pudo leer el Inodo: %v\n", err)
+		return
+	}
+
+	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
+	lines := strings.Split(data, "\n")
+
+	var userID int = 1
+	var grupoExiste bool = false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) == 5 && fields[1] == "U" {
+			if fields[3] == user {
+				fmt.Fprintf(buffer, "Error MKUSR: El usuario '%s' ya existe.\n", user)
+				return
+			}
+			userID++
+		} else if len(fields) == 3 && fields[1] == "G" {
+			if fields[2] == grp {
+				grupoExiste = true
+			}
+		}
+	}
+
+	if !grupoExiste {
+		fmt.Fprintf(buffer, "Error MKUSR: El grupo '%s' no existe.\n", grp)
+		return
+	}
+
+	newUser := fmt.Sprintf("%d,U,%s,%s,%s\n", userID, grp, user, pass)
+
+	err = AppendToFileBlock(&usersInode, newUser, file, tempSuperblock, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error MKUSR: Al escribir nuevo usuario: %v\n", err)
+		return
+	}
+
+	fmt.Fprintf(buffer, "Usuario '%s' creado exitosamente.\n", user)
 }
