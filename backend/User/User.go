@@ -256,21 +256,19 @@ func SarchInodeByPath(StepsPath []string, Inode Structs.Inode, file *os.File, te
 func GetInodeFileData(Inode Structs.Inode, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) string {
 	fmt.Println("======Start CONTENIDO DEL BLOQUE======")
 	index := int32(0)
-	// define content as a string
 	var content string
 
-	// Iterate over i_blocks from Inode
 	for _, block := range Inode.IN_Block {
 		if block != -1 {
-			//Dentro de los directos
 			if index < 13 {
 				var crrFileBlock Structs.FileBlock
-				// Read object from bin file
 				if err := Utilities.ReadObject(file, &crrFileBlock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FileBlock{}))), buffer); err != nil {
 					return ""
 				}
 
-				content += string(crrFileBlock.B_Content[:])
+				// Importante: limpiar caracteres nulos claramente
+				cleanData := strings.TrimRight(string(crrFileBlock.B_Content[:]), "\x00")
+				content += cleanData
 
 			} else {
 				fmt.Print("indirectos")
@@ -279,6 +277,7 @@ func GetInodeFileData(Inode Structs.Inode, file *os.File, tempSuperblock Structs
 		index++
 	}
 
+	fmt.Println("Contenido final obtenido de users.txt:", content)
 	fmt.Println("======End CONTENIDO DEL BLOQUE======")
 	return content
 }

@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-
 body {
     font-family: 'Roboto', sans-serif;
     background: #121212;
@@ -9,31 +7,39 @@ body {
     min-height: 100vh;
     margin: 0;
     padding: 40px;
-    color: #e0e0e0;
+    color: #2c2c2c;
     box-sizing: border-box;
     transition: all 0.4s ease;
 }
 
-/* === Modo Oscuro === */
-body[data-bs-theme="dark"] {
-    background: #000000; /* Negro puro */
-    color: #ffffff; /* Texto blanco */
+.main-container {
+    background: #121212;
+    width: 100%;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .container {
     background-color: #1e1e1e;
     border-radius: 20px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-    padding: 50px;
-    width: 90%;
-    max-width: 1400px; /* Antes era 1200px */
+    padding: 40px;
+    width: 100%;
+    max-width: 1400px;
     margin: 0 auto;
     transition: all 0.4s ease;
     text-align: center;
     box-sizing: border-box;
 }
 
-/* Modo Oscuro para el Contenedor */
+/* === Modo Oscuro === */
+body[data-bs-theme="dark"] {
+    background: #000000; /* Negro puro */
+    color: #272626; /* Texto blanco */
+}
+
 body[data-bs-theme="dark"] .container {
     background-color: #181818;
     box-shadow: 0 10px 30px rgba(255, 255, 255, 0.1);
@@ -42,37 +48,40 @@ body[data-bs-theme="dark"] .container {
 .title {
     text-align: center;
     color: #f5f5f5;
-    margin-bottom: 35px;
-    font-size: 42px;
-    font-weight: 700;
+    margin-bottom: 30px;
+    font-size: 50px;
+    font-weight: 500;
     letter-spacing: 1.2px;
     text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.2);
 }
 
-/* Inputs */
 .input-output-container {
     display: flex;
     justify-content: space-between;
-    gap: 30px;
+    gap: 20px;
     margin-bottom: 30px;
     width: 100%;
 }
 
+.area {
+    width: 48%; /* Ajusta el ancho de cada área */
+}
+
 .area textarea {
     resize: vertical;
-    min-height: 450px; /* Aumentado de 350px a 400px */
-    max-height: 600px; /* Para evitar que crezca demasiado */
+    min-height: 400px;
+    max-height: 450px;
     padding: 20px;
     border-radius: 12px;
     border: 2px solid #444;
     font-size: 18px;
-    background-color: #1b1b1b; /* Más oscuro */
-    color: #ffffff;
+    background-color: #1b1b1b;
+    color: #686161;
     transition: all 0.3s ease;
     box-shadow: inset 0 3px 6px rgba(255, 255, 255, 0.05);
     font-family: 'Consolas', 'Monaco', monospace;
     line-height: 1.6;
-    width: 100%;
+    width: 100%; /* Asegura que el textarea ocupe todo el ancho del contenedor */
     box-sizing: border-box;
 }
 
@@ -84,25 +93,6 @@ body[data-bs-theme="dark"] .container {
     text-align: center;
 }
 
-.area textarea {
-    resize: vertical;
-    min-height: 350px;
-    max-height: 500px; /* Para que no se haga infinito */
-    padding: 18px;
-    border-radius: 15px;
-    border: 2px solid #333;
-    font-size: 16px;
-    background-color: #222;
-    color: #fff;
-    transition: all 0.3s ease;
-    box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.05);
-    font-family: 'Consolas', 'Monaco', monospace;
-    line-height: 1.5;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-/* Efecto en Inputs */
 .area textarea:focus {
     border-color: #673ab7;
     box-shadow: 0 0 15px rgba(103, 58, 183, 0.4);
@@ -110,12 +100,10 @@ body[data-bs-theme="dark"] .container {
     background-color: #222;
 }
 
-/* Placeholders */
 .area textarea::placeholder {
     color: #999;
 }
 
-/* Botones */
 .buttons {
     display: flex;
     justify-content: center;
@@ -130,7 +118,7 @@ body[data-bs-theme="dark"] .container {
     border: none;
     border-radius: 50px;
     cursor: pointer;
-    color: white;
+    color: rgb(51, 50, 50);
     font-size: 20px;
     font-weight: 500;
     transition: all 0.3s ease;
@@ -140,7 +128,6 @@ body[data-bs-theme="dark"] .container {
     min-width: 180px;
 }
 
-/* Botones Oscuros con Acentos Neón */
 .load {
     background: linear-gradient(45deg, #212121, #424242);
     border: 2px solid #616161;
@@ -149,7 +136,7 @@ body[data-bs-theme="dark"] .container {
 
 .run {
     background: linear-gradient(45deg, #0f4c75, #3282b8);
-    border: 2px solid #00e676;
+    border: 2px solid #254a55;
     color: #ffffff;
 }
 
@@ -159,20 +146,17 @@ body[data-bs-theme="dark"] .container {
     color: #ffffff;
 }
 
-/* Hover */
 .btn:hover {
     transform: translateY(-3px) scale(1.08);
     box-shadow: 0 5px 10px rgba(255, 255, 255, 0.3);
     filter: brightness(1.2);
 }
 
-/* Botón Activo */
 .btn:active {
     transform: translateY(1px) scale(0.98);
     box-shadow: 0 2px 4px rgba(255, 255, 255, 0.2);
 }
 
-/* Responsive */
 @media (max-width: 768px) {
     .input-output-container {
         flex-direction: column;
