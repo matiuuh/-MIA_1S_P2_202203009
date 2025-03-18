@@ -129,6 +129,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	// Leer el Inodo desde el archivo binario
 	if err := Utilities.ReadObject(file, &crrInode, int64(tempSuperblock.SB_Inode_Start+indexInode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
 		fmt.Println("Error: No se pudo leer el Inodo:", err)
+		fmt.Fprintf(buffer, "Error: No se pudo leer el Inodo:", err, " asegurese de haber ejecutado mkfs correctamente\n")
 		return
 	}
 
