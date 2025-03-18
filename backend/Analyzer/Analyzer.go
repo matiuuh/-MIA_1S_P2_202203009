@@ -467,4 +467,3 @@ func fn_mounted(buffer io.Writer) {
 //mkdir
 //rep
 //mkfile
-//mounted

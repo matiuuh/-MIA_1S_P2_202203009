@@ -98,26 +98,11 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	for i := 0; i < 4; i++ {
 		if TempMBR.MbrPartitions[i].Size != 0 {
 			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
-				fmt.Println("Partition found")
 				if TempMBR.MbrPartitions[i].Status[0] == '1' {
-					fmt.Println("Partition is mounted")
+					fmt.Println("particion montada\n")
 					index = i
 				} else {
-					fmt.Println("Partition is not mounted")
-					return
-				}
-				break
-			}
-		}
-	}
-
-	// Iterar sobre las particiones del MBR para encontrar la correcta
-	for i := 0; i < 4; i++ {
-		if TempMBR.MbrPartitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
-				if TempMBR.MbrPartitions[i].Status[0] == '1' {
-					index = i
-				} else {
+					fmt.Println("particion no montada\n")
 					return
 				}
 				break
