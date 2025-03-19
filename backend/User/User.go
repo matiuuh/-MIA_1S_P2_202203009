@@ -459,6 +459,7 @@ func Mkgrp(name string, buffer *bytes.Buffer) {
 func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 	fmt.Fprint(buffer, "=============MKUSR=============\n")
 
+	// Verificar que el usuario logueado sea 'root'
 	if Data.GetIDUsuario() != "root" {
 		fmt.Fprintf(buffer, "Error MKUSR: Solo 'root' puede crear usuarios.\n")
 		return
@@ -478,10 +479,10 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		return
 	}
 
+	// Buscar la partición montada
 	mountedPartitions := DiskManagement.GetMountedPartitions()
 	var filePath string
 	var partitionFound bool
-
 	for _, Particiones := range mountedPartitions {
 		for _, Particion := range Particiones {
 			if Particion.ID == Data.GetIDPartition() {
@@ -500,6 +501,7 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		return
 	}
 
+	// Abrir el archivo de la partición
 	file, err := Utilities.OpenFile(filePath, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error MKUSR: No se pudo abrir disco: %v\n", err)
@@ -507,12 +509,14 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 	}
 	defer file.Close()
 
+	// Leer el MBR
 	var TempMBR Structs.MRB
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
 		fmt.Fprintf(buffer, "Error MKUSR: No se pudo leer el MBR: %v\n", err)
 		return
 	}
 
+	// Buscar la partición correcta
 	var partitionIndex int = -1
 	for i, part := range TempMBR.MbrPartitions {
 		if strings.Trim(string(part.ID[:]), "\x00") == Data.GetIDPartition() && part.Status[0] == '1' {
@@ -525,6 +529,7 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		return
 	}
 
+	// Leer el Superblock
 	var tempSuperblock Structs.Superblock
 	sbStart := int64(TempMBR.MbrPartitions[partitionIndex].Start)
 	if err := Utilities.ReadObject(file, &tempSuperblock, sbStart, buffer); err != nil {
@@ -532,6 +537,7 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		return
 	}
 
+	// Buscar archivo /users.txt
 	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
 	if indexInode == -1 {
 		fmt.Fprintf(buffer, "Error MKUSR: No se encontró archivo /users.txt\n")
@@ -545,41 +551,194 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		return
 	}
 
+	// Leer los datos del archivo /users.txt
 	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
 	lines := strings.Split(data, "\n")
 
 	var userID int = 1
 	var grupoExiste bool = false
+	var userFound bool = false
+	var userLine string
+
+	// Buscar si el usuario existe en cualquier grupo
 	for _, line := range lines {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
 		fields := strings.Split(line, ",")
 		if len(fields) == 5 && fields[1] == "U" {
-			if fields[3] == user {
+			// Si el usuario ya existe y está eliminado (ID = 0), restaurarlo
+			if fields[3] == user && fields[0] == "0" {
+				// Restaurar el usuario, cambiar el ID a 1
+				fields[0] = "1"
+				fields[4] = pass // Actualizar la contraseña
+				line = strings.Join(fields, ", ") + "\n"
+				userFound = true
+				userLine = line
+				break
+			} else if fields[3] == user {
+				// Si el usuario ya existe y no está eliminado, no permitir su creación
 				fmt.Fprintf(buffer, "Error MKUSR: El usuario '%s' ya existe.\n", user)
 				return
 			}
 			userID++
 		} else if len(fields) == 3 && fields[1] == "G" {
+			// Verificar si el grupo existe
 			if fields[2] == grp {
 				grupoExiste = true
 			}
 		}
 	}
 
+	if userFound {
+		// El usuario fue restaurado
+		lines = append(lines, userLine) // Añadir la línea restaurada
+		// Escribir el archivo actualizado
+		newData := strings.Join(lines, "\n")
+		err := AppendToFileBlock(&usersInode, newData, file, tempSuperblock, buffer)
+		if err != nil {
+			fmt.Fprintf(buffer, "Error MKUSR: Al escribir el archivo actualizado: %v\n", err)
+			return
+		}
+		fmt.Fprintf(buffer, "Usuario '%s' restaurado exitosamente.\n", user)
+		return
+	}
+
+	// Verificar si el grupo existe
 	if !grupoExiste {
+		// El grupo no existe
 		fmt.Fprintf(buffer, "Error MKUSR: El grupo '%s' no existe.\n", grp)
 		return
 	}
 
+	// Crear un nuevo usuario si no existe
 	newUser := fmt.Sprintf("%d,U,%s,%s,%s\n", userID, grp, user, pass)
 
+	// Añadir el nuevo usuario al archivo
 	err = AppendToFileBlock(&usersInode, newUser, file, tempSuperblock, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error MKUSR: Al escribir nuevo usuario: %v\n", err)
 		return
 	}
 
-	fmt.Fprintf(buffer, "Usuario '%s' creado exitosamente.\n", user)
+	fmt.Fprintf(buffer, "Usuario '%s' creado exitosamente en el grupo '%s'.\n", user, grp)
+}
+
+//--------------------RMUSR--------------------
+func Rmusr(user string, buffer *bytes.Buffer) {
+	fmt.Fprint(buffer, "=============RMUSR=============\n")
+
+	// Verificar que el usuario logueado sea 'root'
+	if Data.GetIDUsuario() != "root" {
+		fmt.Fprintf(buffer, "Error RMUSR: Solo 'root' puede eliminar usuarios.\n")
+		return
+	}
+
+	mountedPartitions := DiskManagement.GetMountedPartitions()
+	var filePath string
+	var partitionFound bool
+
+	// Buscar la partición donde se ha iniciado sesión
+	for _, Particiones := range mountedPartitions {
+		for _, Particion := range Particiones {
+			if Particion.ID == Data.GetIDPartition() {
+				filePath = Particion.Path
+				partitionFound = true
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Fprintf(buffer, "Error RMUSR: No se encontró ninguna partición montada con el ID: %s\n", Data.GetIDPartition())
+		return
+	}
+
+	// Abrir el archivo de la partición
+	file, err := Utilities.OpenFile(filePath, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error RMUSR: No se pudo abrir disco: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	// Leer el MBR de la partición
+	var TempMBR Structs.MRB
+	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error RMUSR: No se pudo leer el MBR: %v\n", err)
+		return
+	}
+
+	var partitionIndex int = -1
+	for i, part := range TempMBR.MbrPartitions {
+		if strings.Trim(string(part.ID[:]), "\x00") == Data.GetIDPartition() && part.Status[0] == '1' {
+			partitionIndex = i
+			break
+		}
+	}
+	if partitionIndex == -1 {
+		fmt.Fprintf(buffer, "Error RMUSR: La partición no está montada o no existe.\n")
+		return
+	}
+
+	var tempSuperblock Structs.Superblock
+	sbStart := int64(TempMBR.MbrPartitions[partitionIndex].Start)
+	if err := Utilities.ReadObject(file, &tempSuperblock, sbStart, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error RMUSR: No se pudo leer Superblock: %v\n", err)
+		return
+	}
+
+	// Buscar archivo /users.txt
+	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
+	if indexInode == -1 {
+		fmt.Fprintf(buffer, "Error RMUSR: No se encontró el archivo /users.txt\n", err)
+		return
+	}
+
+	var usersInode Structs.Inode
+	inodePos := int64(tempSuperblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &usersInode, inodePos, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error RMUSR: No se pudo leer el Inodo: %v\n", err)
+		return
+	}
+
+	// Leer los datos del archivo /users.txt
+	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
+	lines := strings.Split(data, "\n")
+
+	// Buscar y eliminar al usuario
+	var newData string
+	userFound := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) == 5 && fields[1] == "U" && fields[3] == user {
+			// Eliminar la línea correspondiente al usuario
+			userFound = true
+			fields[0] = "0"  // Cambiar el ID a 0 (usuario eliminado)
+			line = strings.Join(fields, ", ") + "\n" // Modificar la línea con ID = 0
+		}
+		// Conservar el resto de los datos
+		newData += line + "\n"
+	}
+
+	if !userFound {
+		fmt.Fprintf(buffer, "Error RMUSR: El usuario '%s' no existe.\n", user)
+		return
+	}
+
+	// Escribir el archivo /users.txt actualizado
+	err = AppendToFileBlock(&usersInode, newData, file, tempSuperblock, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error RMUSR: Al escribir el archivo actualizado: %v\n", err)
+		return
+	}
+
+	// Confirmación de eliminación
+	fmt.Fprintf(buffer, "Usuario '%s' eliminado exitosamente.\n", user)
 }

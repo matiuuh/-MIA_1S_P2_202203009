@@ -95,6 +95,8 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_list(params, buffer)
 	} else if strings.Contains(command, "mkusr") {
 		fn_mkusr(params, buffer)
+	} else if strings.Contains(command, "rmusr") {
+		fn_rmusr(params, buffer)
 	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
@@ -491,8 +493,38 @@ func fn_mkusr(input string, buffer io.Writer) {
 	User.Mkusr(*user, *pass, *grp, buffer.(*bytes.Buffer))
 }
 
+//--------------------Función para rmusr--------------------
+func fn_rmusr(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("rmusr", flag.ExitOnError)
+	user := fs.String("user", "", "Usuario a eliminar")
+
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	// Procesar los parámetros de entrada
+	for _, match := range matches {
+		flagName := strings.ToLower(match[1])
+		flagValue := strings.Trim(match[2], "\"")
+
+		switch flagName {
+		case "user":
+			fs.Set(flagName, flagValue)
+		default:
+			fmt.Fprintf(buffer, "Error: El comando 'RMUSR' incluye parámetros no asociados.\n")
+			return
+		}
+	}
+
+	// Verificar que se ha pasado el parámetro -user
+	if *user == "" {
+		fmt.Fprintf(buffer, "Error: El comando 'RMUSR' requiere el parámetro -user.\n")
+		return
+	}
+
+	// Llamar a la función correspondiente en User.go
+	User.Rmusr(*user, buffer.(*bytes.Buffer))
+}
+
 //rmgrp
-//mkusr
 //rmusr
 //chgrp
 //mkdir
