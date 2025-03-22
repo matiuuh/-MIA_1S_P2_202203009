@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"proyecto1/Structs"
 	"proyecto1/Utilities"
+	"proyecto1/Report"
 )
 
 var re = regexp.MustCompile(`-(\w+)=("[^"]+"|\S+)`)
@@ -97,6 +98,8 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_mkusr(params, buffer)
 	} else if strings.Contains(command, "rmusr") {
 		fn_rmusr(params, buffer)
+	} else if strings.Contains(command, "rep") {
+		fn_rep(params, buffer)
 	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
@@ -522,6 +525,33 @@ func fn_rmusr(input string, buffer io.Writer) {
 
 	// Llamar a la función correspondiente en User.go
 	User.Rmusr(*user, buffer.(*bytes.Buffer))
+}
+
+func fn_rep(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("rep", flag.ExitOnError)
+	nombre := fs.String("name", "", "Nombre")
+	ruta := fs.String("path", "full", "Ruta")
+	ID := fs.String("id", "", "IDParticion")
+	path_file_ls := fs.String("path_file_l", "", "PathFile")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		nombreFlag := match[1]
+		valorFlag := strings.ToLower(match[2])
+
+		valorFlag = strings.Trim(valorFlag, "\"")
+
+		switch nombreFlag {
+		case "name", "path", "id", "path_file_l":
+			fs.Set(nombreFlag, valorFlag)
+		default:
+			fmt.Fprintf(buffer, "Error: El comando 'REP' incluye parámetros no asociados.\n")
+			return
+		}
+	}
+	Report.Rep(*nombre, *ruta, *ID, *path_file_ls, buffer.(*bytes.Buffer))
 }
 
 //rmgrp

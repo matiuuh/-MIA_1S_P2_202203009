@@ -1,0 +1,28 @@
+digraph G {
+node [shape=plaintext];
+fontname="Courier New";
+title [label="REPORTE MBR
+MATEO DIEGO
+202203009"];
+mbrTable [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td bgcolor="blue" colspan='2'>MBR</td></tr>
+<tr><td>Tamaño</td><td>3072000</td></tr>
+<tr><td>Fecha De Creación</td><td>2025-03-22</td></tr>
+<tr><td>Ajuste</td><td>f</td></tr>
+<tr><td>Signature</td><td>1001747139</td></tr>
+</table>
+>];
+PA1 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td bgcolor="red" colspan='2'>Partición 1</td></tr>
+<tr><td>Estado</td><td>1</td></tr>
+<tr><td>Tipo</td><td>p</td></tr>
+<tr><td>Ajuste</td><td>w</td></tr>
+<tr><td>Incio</td><td>159</td></tr>
+<tr><td>Tamaño</td><td>1024000</td></tr>
+<tr><td>Nombre</td><td>partgod</td></tr>
+<tr><td>Correlativo</td><td>1</td></tr>
+</table>
+>];
+}

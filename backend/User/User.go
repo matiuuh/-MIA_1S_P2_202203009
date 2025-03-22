@@ -331,15 +331,27 @@ func AppendToFileBlock(inode *Structs.Inode, newData string, file *os.File, supe
 	// Escribir el contenido actualizado en el bloque existente
 	var updatedFileBlock Structs.FileBlock
 	copy(updatedFileBlock.B_Content[:], fullData)
-	if err := Utilities.WriteObject(file, updatedFileBlock, int64(superblock.SB_Block_Start+inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{}))), buffer); err != nil {
+
+	// Mostrar lo que estamos escribiendo
+	fmt.Println("Escribiendo el bloque actualizado con los siguientes datos:")
+	fmt.Println(string(updatedFileBlock.B_Content[:]))
+
+	// Escribir el contenido en el archivo
+	blockPos := int64(superblock.SB_Block_Start + inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{})))
+	if err := Utilities.WriteObject(file, updatedFileBlock, blockPos, buffer); err != nil {
 		return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
 	}
 
 	// Actualizar el tamaño del inodo
 	inode.IN_Size = int32(len(fullData))
-	if err := Utilities.WriteObject(file, *inode, int64(superblock.SB_Inode_Start+inode.IN_Block[0]*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
+
+	// Escribir el inodo actualizado en el archivo
+	inodePos := int64(superblock.SB_Inode_Start + inode.IN_Block[0]*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.WriteObject(file, *inode, inodePos, buffer); err != nil {
 		return fmt.Errorf("error al actualizar el inodo: %v", err)
 	}
+
+	fmt.Println("Inodo actualizado correctamente con el nuevo tamaño:", inode.IN_Size)
 
 	return nil
 }
@@ -579,6 +591,7 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 			} else if fields[3] == user {
 				// Si el usuario ya existe y no está eliminado, no permitir su creación
 				fmt.Fprintf(buffer, "Error MKUSR: El usuario '%s' ya existe.\n", user)
+				userFound = true
 				return
 			}
 			userID++
@@ -741,4 +754,51 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 
 	// Confirmación de eliminación
 	fmt.Fprintf(buffer, "Usuario '%s' eliminado exitosamente.\n", user)
+}
+/*
+func RewriteFileBlock(inode *Structs.Inode, newData string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer) error {
+	// Asegurarse de que el contenido no exceda el tamaño del bloque
+	if len(newData) > len(inode.IN_Block)*binary.Size(Structs.FileBlock{}) {
+		// Si el contenido excede, necesitaríamos manejar bloques adicionales
+		return fmt.Errorf("el tamaño del archivo excede la capacidad del bloque actual y no se ha implementado la creación de bloques adicionales")
+	}
+
+	// Crear un bloque de archivo actualizado con el nuevo contenido
+	var updatedFileBlock Structs.FileBlock
+	copy(updatedFileBlock.B_Content[:], newData)
+
+	// Escribir el contenido actualizado en el bloque correspondiente
+	if err := Utilities.WriteObject(file, updatedFileBlock, int64(superblock.SB_Block_Start+inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{}))), buffer); err != nil {
+		return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
+	}
+
+	// Actualizar el tamaño del inodo
+	inode.IN_Size = int32(len(newData))
+	if err := Utilities.WriteObject(file, *inode, int64(superblock.SB_Inode_Start+inode.IN_Block[0]*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
+		return fmt.Errorf("error al actualizar el inodo: %v", err)
+	}
+
+	return nil
+}*/
+
+func WriteFileBlock(inode *Structs.Inode, content string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer, indexInode int32) error {
+    // Escribir el contenido en el bloque
+    var fileBlock Structs.FileBlock
+    copy(fileBlock.B_Content[:], content)
+    
+    blockPos := int64(superblock.SB_Block_Start + inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{})))
+    if err := Utilities.WriteObject(file, fileBlock, blockPos, buffer); err != nil {
+        return fmt.Errorf("error al escribir el bloque: %v", err)
+    }
+    
+    // Actualizar el tamaño del inodo
+    inode.IN_Size = int32(len(content))
+    
+    // Escribir el inodo actualizado usando el índice pasado como parámetro
+    inodePos := int64(superblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+    if err := Utilities.WriteObject(file, *inode, inodePos, buffer); err != nil {
+        return fmt.Errorf("error al actualizar el inodo: %v", err)
+    }
+    
+    return nil
 }
