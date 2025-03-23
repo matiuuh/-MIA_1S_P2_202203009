@@ -135,6 +135,40 @@ func SistemaEXT2(n int32, Particion Structs.Partition, NuevoSuperBloque Structs.
 	Structs.PrintSuperblock(NuevoSuperBloque)
 	fmt.Fprintf(buffer, "Partición: %s formateada exitosamente.\n", string(Particion.Name[:]))
 
+	// Depuración: Leer e imprimir el Inodo 0 y el FolderBlock 0
+	var inode0 Structs.Inode
+	if err := Utilities.ReadObject(archivo, &inode0, int64(NuevoSuperBloque.SB_Inode_Start), buffer); err == nil {
+		fmt.Fprintln(buffer, "\n--- Inodo Raíz (0) ---")
+		Structs.PrintInode(inode0)
+	} else {
+		fmt.Fprintln(buffer, "Error leyendo Inodo raíz para depuración:", err)
+	}
+
+	var folder0 Structs.FolderBlock
+	if err := Utilities.ReadObject(archivo, &folder0, int64(NuevoSuperBloque.SB_Block_Start), buffer); err == nil {
+		fmt.Fprintln(buffer, "\n--- Folder Block Raíz (bloque 0) ---")
+		Structs.PrintFolderblock(folder0)
+	} else {
+		fmt.Fprintln(buffer, "Error leyendo FolderBlock raíz para depuración:", err)
+	}
+
+	// Depuración: Leer e imprimir el Inodo 1 y FileBlock 1
+	var inode1 Structs.Inode
+	if err := Utilities.ReadObject(archivo, &inode1, int64(NuevoSuperBloque.SB_Inode_Start+int32(binary.Size(Structs.Inode{}))), buffer); err == nil {
+		fmt.Fprintln(buffer, "\n--- Inodo users.txt (1) ---")
+		Structs.PrintInode(inode1)
+	} else {
+		fmt.Fprintln(buffer, "Error leyendo Inodo users.txt para depuración:", err)
+	}
+
+	var fileblock1 Structs.FileBlock
+	if err := Utilities.ReadObject(archivo, &fileblock1, int64(NuevoSuperBloque.SB_Block_Start+int32(binary.Size(Structs.FolderBlock{}))), buffer); err == nil {
+		fmt.Fprintln(buffer, "\n--- FileBlock contenido de users.txt ---")
+		fmt.Fprintf(buffer, "Contenido: %s\n", string(fileblock1.B_Content[:]))
+	} else {
+		fmt.Fprintln(buffer, "Error leyendo FileBlock users.txt para depuración:", err)
+	}
+
 }
 
 // Función auxiliar para inicializar inodos y bloques
@@ -475,4 +509,316 @@ func pop(s *[]string) string {
 	last := (*s)[lastIndex]
 	*s = (*s)[:lastIndex]
 	return last
+}
+
+func Mkdir(path string, p bool, buffer *bytes.Buffer) {
+	fmt.Fprintln(buffer, "=========== MKDIR ===========")
+
+	// 1. Validar sesión activa
+	if !isUserLoggedIn() {
+		fmt.Fprintln(buffer, "Error MKDIR: No hay una sesión activa.")
+		return
+	}
+
+	// 2. Obtener partición montada con sesión activa
+	partitions := DiskManagement.GetMountedPartitions()
+	var filepath, id string
+	found := false
+	for _, parts := range partitions {
+		for _, part := range parts {
+			if part.LoggedIn {
+				filepath = part.Path
+				id = part.ID
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		fmt.Fprintln(buffer, "Error MKDIR: No se encontró partición activa.")
+		return
+	}
+
+	// 3. Abrir disco
+	file, err := Utilities.OpenFile(filepath, buffer)
+	if err != nil {
+		fmt.Fprintln(buffer, "Error MKDIR: No se pudo abrir el archivo.")
+		return
+	}
+	defer file.Close()
+
+	// 4. Leer MBR y Superblock
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error MKDIR: No se pudo leer el MBR.")
+		return
+	}
+
+	// Buscar la partición correspondiente
+	var index int = -1
+	for i := 0; i < 4; i++ {
+		if strings.Contains(string(mbr.MbrPartitions[i].ID[:]), id) && mbr.MbrPartitions[i].Status[0] == '1' {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		fmt.Fprintln(buffer, "Error MKDIR: Partición no montada.")
+		return
+	}
+
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(file, &sb, int64(mbr.MbrPartitions[index].Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "Error MKDIR: No se pudo leer el Superblock.")
+		return
+	}
+
+	// 5. Procesar ruta
+	pathParts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(pathParts) == 0 {
+		fmt.Fprintln(buffer, "Error MKDIR: Ruta inválida.")
+		return
+	}
+
+	// 6. Buscar carpeta padre y crear carpetas si no existen
+	rootInode := Structs.Inode{}
+	if err := Utilities.ReadObject(file, &rootInode, int64(sb.SB_Inode_Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "Error MKDIR: No se pudo leer el Inodo raíz.")
+		return
+	}
+
+	err = crearCarpetas(pathParts, rootInode, file, sb, p, buffer)
+	if err != nil {
+		fmt.Fprintln(buffer, "Error MKDIR:", err)
+		return
+	}
+
+	fmt.Fprintln(buffer, "Carpeta creada exitosamente:", path)
+}
+
+func crearCarpetas(pathParts []string, currentInode Structs.Inode, file *os.File, sb Structs.Superblock, p bool, buffer *bytes.Buffer) error {
+	fmt.Fprintf(buffer, "DEBUG crearCarpetas: p=%v, pathParts=%v\n", p, pathParts)
+	for i, part := range pathParts {
+		found := false
+		var nextInode Structs.Inode
+		var nextInodeIndex int32 = -1
+
+		// Buscar si la carpeta ya existe
+		for _, block := range currentInode.IN_Block {
+			if block == -1 {
+				continue
+			}
+			var folder Structs.FolderBlock
+			blockOffset := int64(sb.SB_Block_Start) + int64(block)*int64(binary.Size(Structs.FolderBlock{}))
+			if err := Utilities.ReadObject(file, &folder, blockOffset, buffer); err != nil {
+				return err
+			}
+			for _, entry := range folder.B_Content {
+				name := strings.Trim(string(entry.B_Name[:]), "\x00")
+				if name == part && entry.B_Inode != -1 {
+					// Carpeta encontrada
+					found = true
+					nextInodeIndex = entry.B_Inode
+					inodeOffset := int64(sb.SB_Inode_Start) + int64(nextInodeIndex)*int64(binary.Size(Structs.Inode{}))
+					if err := Utilities.ReadObject(file, &nextInode, inodeOffset, buffer); err != nil {
+						return err
+					}
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+
+		if found {
+			// Continuamos con la siguiente carpeta
+			currentInode = nextInode
+			continue
+		} else {
+			// No se encontró: ¿puede crear?
+			if !p && i != len(pathParts)-1 {
+				fmt.Fprintf(buffer, "DEBUG: no se encontró carpeta '%s' y -p no está activado\n", part)
+				return fmt.Errorf("no existe la carpeta '%s' y no se especificó -p", part)
+			}
+
+			// Crear carpeta
+			newInodeIndex, newBlockIndex, err := reservarInodoYBloque(file, sb, buffer)
+			if err != nil {
+				return fmt.Errorf("error al reservar espacio para carpeta '%s': %v", part, err)
+			}
+
+			// Crear el nuevo FolderBlock
+			var newFolder Structs.FolderBlock
+			copy(newFolder.B_Content[0].B_Name[:], ".")
+			newFolder.B_Content[0].B_Inode = newInodeIndex
+			copy(newFolder.B_Content[1].B_Name[:], "..")
+			newFolder.B_Content[1].B_Inode = buscarIndiceInodo(currentInode, file, sb, buffer)
+
+			// Guardar el bloque
+			blockOffset := int64(sb.SB_Block_Start + newBlockIndex*int32(binary.Size(Structs.FolderBlock{})))
+			if err := Utilities.WriteObject(file, newFolder, blockOffset, buffer); err != nil {
+				return fmt.Errorf("error al escribir folder block: %v", err)
+			}
+
+			// Crear el nuevo Inode
+			var newInode Structs.Inode
+			newInode.IN_Uid = 1
+			newInode.IN_Gid = 1
+			newInode.IN_Size = 0
+			copy(newInode.IN_Perm[:], "664")
+			for i := 0; i < 15; i++ {
+				newInode.IN_Block[i] = -1
+			}
+			newInode.IN_Block[0] = newBlockIndex
+
+			inodeOffset := int64(sb.SB_Inode_Start + newInodeIndex*int32(binary.Size(Structs.Inode{})))
+			if err := Utilities.WriteObject(file, newInode, inodeOffset, buffer); err != nil {
+				return fmt.Errorf("error al escribir inode: %v", err)
+			}
+
+			// Insertar la nueva carpeta en el FolderBlock del inodo padre
+			if err := agregarEntradaAFolderBlock(&currentInode, part, newInodeIndex, file, sb, buffer); err != nil {
+				return fmt.Errorf("error al agregar entrada de carpeta '%s': %v", part, err)
+			}
+
+			// Actualizar inodo padre en disco
+			currentInodeIndex := buscarIndiceInodo(currentInode, file, sb, buffer)
+			if currentInodeIndex == -1 {
+				return fmt.Errorf("no se pudo encontrar índice del inodo padre")
+			}
+			inodeOffset = int64(sb.SB_Inode_Start + currentInodeIndex*int32(binary.Size(Structs.Inode{})))
+			if err := Utilities.WriteObject(file, currentInode, inodeOffset, buffer); err != nil {
+				return fmt.Errorf("error al actualizar inodo padre: %v", err)
+			}
+
+			// Continuar con el nuevo inodo creado
+			currentInode = newInode
+		}
+	}
+	return nil
+}
+
+func reservarInodoYBloque(file *os.File, sb Structs.Superblock, buffer *bytes.Buffer) (int32, int32, error) {
+	// Buscar primer bit libre en el bitmap de inodos
+	var inodoLibre int32 = -1
+	for i := int32(0); i < sb.SB_Inodes_Count; i++ {
+		var bit byte
+		if err := Utilities.ReadObject(file, &bit, int64(sb.SB_Bm_Inode_Start+i), buffer); err != nil {
+			return -1, -1, err
+		}
+		if bit == 0 {
+			inodoLibre = i
+			break
+		}
+	}
+	if inodoLibre == -1 {
+		return -1, -1, fmt.Errorf("no hay inodos disponibles")
+	}
+	if err := Utilities.WriteObject(file, byte(1), int64(sb.SB_Bm_Inode_Start+inodoLibre), buffer); err != nil {
+		return -1, -1, err
+	}
+
+	// Buscar primer bit libre en el bitmap de bloques
+	var bloqueLibre int32 = -1
+	for i := int32(0); i < sb.SB_Blocks_Count; i++ {
+		var bit byte
+		if err := Utilities.ReadObject(file, &bit, int64(sb.SB_Bm_Block_Start+i), buffer); err != nil {
+			return -1, -1, err
+		}
+		if bit == 0 {
+			bloqueLibre = i
+			break
+		}
+	}
+	if bloqueLibre == -1 {
+		return -1, -1, fmt.Errorf("no hay bloques disponibles")
+	}
+	if err := Utilities.WriteObject(file, byte(1), int64(sb.SB_Bm_Block_Start+bloqueLibre), buffer); err != nil {
+		return -1, -1, err
+	}
+
+	return inodoLibre, bloqueLibre, nil
+}
+
+func buscarIndiceInodo(target Structs.Inode, file *os.File, sb Structs.Superblock, buffer *bytes.Buffer) int32 {
+	for i := int32(0); i < sb.SB_Inodes_Count; i++ {
+		var temp Structs.Inode
+		offset := int64(sb.SB_Inode_Start + i*int32(binary.Size(Structs.Inode{})))
+		if err := Utilities.ReadObject(file, &temp, offset, buffer); err != nil {
+			continue
+		}
+
+		// Comparamos solo por bloques, UID y GID
+		if temp.IN_Uid == target.IN_Uid &&
+			temp.IN_Gid == target.IN_Gid &&
+			string(temp.IN_Perm[:]) == string(target.IN_Perm[:]) &&
+			temp.IN_Block[0] == target.IN_Block[0] {
+			return i
+		}
+	}
+	return -1
+}
+
+
+func agregarEntradaAFolderBlock(parentInode *Structs.Inode, name string, inodeIndex int32, file *os.File, sb Structs.Superblock, buffer *bytes.Buffer) error {
+	for i := 0; i < 15; i++ {
+		block := parentInode.IN_Block[i]
+		if block == -1 {
+			// Crear un nuevo FolderBlock si no existe
+			newBlockIndex := int32(-1)
+			for j := int32(0); j < sb.SB_Blocks_Count; j++ {
+				var bit byte
+				if err := Utilities.ReadObject(file, &bit, int64(sb.SB_Bm_Block_Start+j), buffer); err != nil {
+					return err
+				}
+				if bit == 0 {
+					newBlockIndex = j
+					break
+				}
+			}
+			if newBlockIndex == -1 {
+				return fmt.Errorf("no hay bloques disponibles para nueva carpeta")
+			}
+
+			// Marcar el bloque como usado
+			if err := Utilities.WriteObject(file, byte(1), int64(sb.SB_Bm_Block_Start+newBlockIndex), buffer); err != nil {
+				return err
+			}
+
+			var newFolder Structs.FolderBlock
+			copy(newFolder.B_Content[0].B_Name[:], name)
+			newFolder.B_Content[0].B_Inode = inodeIndex
+
+			blockOffset := int64(sb.SB_Block_Start + newBlockIndex*int32(binary.Size(Structs.FolderBlock{})))
+			if err := Utilities.WriteObject(file, newFolder, blockOffset, buffer); err != nil {
+				return err
+			}
+
+			// Actualizar el inodo con el nuevo bloque
+			parentInode.IN_Block[i] = newBlockIndex
+			return nil
+		} else {
+			// Revisar si hay espacio en el FolderBlock existente
+			var folder Structs.FolderBlock
+			blockOffset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.FolderBlock{})))
+			if err := Utilities.ReadObject(file, &folder, blockOffset, buffer); err != nil {
+				return err
+			}
+			for j := 0; j < 4; j++ {
+				if folder.B_Content[j].B_Inode == -1 {
+					copy(folder.B_Content[j].B_Name[:], name)
+					folder.B_Content[j].B_Inode = inodeIndex
+					if err := Utilities.WriteObject(file, folder, blockOffset, buffer); err != nil {
+						return err
+					}
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("no hay espacio disponible para agregar entrada en inodo padre")
 }

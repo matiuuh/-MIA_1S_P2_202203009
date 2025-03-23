@@ -100,7 +100,9 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_rmusr(params, buffer)
 	} else if strings.Contains(command, "rep") {
 		fn_rep(params, buffer)
-	} else {
+	} else if strings.Contains(command, "mkdir") {
+		fn_mkdir(params, buffer)
+	}else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
 
@@ -552,6 +554,39 @@ func fn_rep(input string, buffer io.Writer) {
 		}
 	}
 	Report.Rep(*nombre, *ruta, *ID, *path_file_ls, buffer.(*bytes.Buffer))
+}
+
+//--------------------Función para mkdir--------------------
+func fn_mkdir(input string, buffer io.Writer) {
+	fmt.Fprintf(buffer, "DEBUG: Entrando a fn_mkdir con input: %s\n", input)
+	var path string
+var p bool = false
+
+// Dividir en tokens por espacios
+tokens := strings.Fields(input)
+
+for _, token := range tokens {
+	if strings.HasPrefix(token, "-path=") {
+		path = strings.Trim(strings.SplitN(token, "=", 2)[1], "\"")
+	} else if token == "-p" {
+		p = true
+	} else if strings.HasPrefix(token, "-") {
+		fmt.Fprintf(buffer, "Error: El comando 'MKDIR' incluye parámetros no asociados: %s\n", token)
+		return
+	}
+}
+
+fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
+
+if path == "" {
+	fmt.Fprintf(buffer, "Error: MKDIR requiere parámetro obligatorio -path.\n")
+	return
+}
+	
+	fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
+
+	// Llamar a la función final
+	FileSystem.Mkdir(path, p, buffer.(*bytes.Buffer))
 }
 
 //rmgrp
