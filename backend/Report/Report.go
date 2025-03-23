@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"encoding/binary"
 )
 
 func Rep(name string, path string, id string, path_file_ls string, buffer *bytes.Buffer) {
@@ -757,9 +758,169 @@ func ReportBloc(id string, path string, buffer *bytes.Buffer){
 	fmt.Println("===========Reporte de Bloques===========\n")
 }
 
-func ReporteTree(id string, path string, buffer *bytes.Buffer){
-	fmt.Println("===========Reporte de arbol===========\n")
+func ReporteTree(id string, path string, buffer *bytes.Buffer) {
+	fmt.Fprintln(buffer, "=========== Reporte Tree ===========")
+
+	// 1. Obtener partición montada
+	particiones := DiskManagement.GetMountedPartitions()
+	var diskPath string
+	var encontrado bool
+	for _, lista := range particiones {
+		for _, part := range lista {
+			if part.ID == id && part.LoggedIn {
+				diskPath = part.Path
+				encontrado = true
+				break
+			}
+		}
+		if encontrado {
+			break
+		}
+	}
+
+	if !encontrado {
+		fmt.Fprintln(buffer, "Error: No se encontró partición montada con ID", id)
+		return
+	}
+
+	// 2. Abrir archivo y leer MBR y Superblock
+	file, err := Utilities.OpenFile(diskPath, buffer)
+	if err != nil {
+		fmt.Fprintln(buffer, "Error al abrir disco:", err)
+		return
+	}
+	defer file.Close()
+
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error al leer MBR:", err)
+		return
+	}
+
+	var index int = -1
+	for i := 0; i < 4; i++ {
+		if strings.Contains(string(mbr.MbrPartitions[i].ID[:]), id) && mbr.MbrPartitions[i].Status[0] == '1' {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		fmt.Fprintln(buffer, "Error: No se encontró la partición activa en el MBR")
+		return
+	}
+
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(file, &sb, int64(mbr.MbrPartitions[index].Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "Error al leer el Superblock:", err)
+		return
+	}
+
+	// 3. Generar contenido del DOT
+	var dot bytes.Buffer
+	dot.WriteString("digraph G {\n")
+	dot.WriteString("rankdir=LR;\n")
+	dot.WriteString("node [shape=record, fontname=Helvetica];\n")
+
+	// Recorremos el sistema desde el inodo raíz
+	generarArbolInodos(0, &sb, file, &dot, buffer)
+
+	dot.WriteString("}\n")
+
+	// 4. Guardar archivo .dot
+	outputDotPath := strings.ReplaceAll(path, ".jpg", ".dot")
+	err = os.WriteFile(outputDotPath, dot.Bytes(), 0644)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error al escribir archivo DOT: %v\n", err)
+		return
+	}
+
+	// Crear directorio de destino si no existe
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		err = os.MkdirAll(dir, 0755)
+		if err != nil {
+			fmt.Fprintf(buffer, "Error al crear directorio destino: %v\n", err)
+			return
+		}
+	}
+
+	// Ejecutar Graphviz para generar la imagen
+	cmd := exec.Command("dot", "-Tjpg", outputDotPath, "-o", path)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Fprintf(buffer, "Error al ejecutar Graphviz: %v\n", err)
+		fmt.Fprintf(buffer, "Detalles: %s\n", stderr.String())
+		return
+	}
+
+	fmt.Fprintf(buffer, "Reporte Tree generado con éxito en la ruta: %s\n", path)
 }
+
+
+func generarArbolInodos(index int32, sb *Structs.Superblock, file *os.File, dot *bytes.Buffer, buffer *bytes.Buffer) {
+	inodeOffset := int64(sb.SB_Inode_Start + index*int32(binary.Size(Structs.Inode{})))
+	var inode Structs.Inode
+	if err := Utilities.ReadObject(file, &inode, inodeOffset, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error al leer inodo %d: %v\n", index, err)
+		return
+	}
+
+	// Crear nodo del inodo
+	dot.WriteString(fmt.Sprintf("inode%d [label=\"Inodo %d\\nUID: %d\\nGID: %d\\nSize: %d\\nPerm: %s\"];\n",
+		index, index, inode.IN_Uid, inode.IN_Gid, inode.IN_Size, string(inode.IN_Perm[:])))
+
+	for i, block := range inode.IN_Block {
+		if block == -1 {
+			continue
+		}
+
+		dot.WriteString(fmt.Sprintf("inode%d -> block%d_%d;\n", index, index, i))
+
+		if i < 12 {
+			// Bloques directos
+			if string(inode.IN_Type[:]) == "0" || string(inode.IN_Type[:]) == "" {
+				// Carpeta
+				var folder Structs.FolderBlock
+				blockOffset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.FolderBlock{})))
+				if err := Utilities.ReadObject(file, &folder, blockOffset, buffer); err != nil {
+					fmt.Fprintf(buffer, "Error al leer FolderBlock %d: %v\n", block, err)
+					continue
+				}
+
+				dot.WriteString(fmt.Sprintf("block%d_%d [label=\"FolderBlock %d", index, i, block))
+				for _, content := range folder.B_Content {
+					name := strings.Trim(string(content.B_Name[:]), "\x00")
+					if name != "" && content.B_Inode != -1 {
+						dot.WriteString(fmt.Sprintf("\\n%s:%d", name, content.B_Inode))
+					}
+				}
+				dot.WriteString("\"];\n")
+
+				// Recursividad para carpetas
+				for _, content := range folder.B_Content {
+					name := strings.Trim(string(content.B_Name[:]), "\x00")
+					if name != "" && content.B_Inode != -1 && name != "." && name != ".." {
+						generarArbolInodos(content.B_Inode, sb, file, dot, buffer)
+					}
+				}
+			} else {
+				// Archivo
+				var fileblock Structs.FileBlock
+				blockOffset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.FileBlock{})))
+				if err := Utilities.ReadObject(file, &fileblock, blockOffset, buffer); err != nil {
+					fmt.Fprintf(buffer, "Error al leer FileBlock %d: %v\n", block, err)
+					continue
+				}
+				dot.WriteString(fmt.Sprintf("block%d_%d [label=\"FileBlock %d\\n%s\"];\n", index, i, block, string(fileblock.B_Content[:])))
+			}
+		} else {
+			// TODO: implementar indirectos simples, dobles y triples
+		}
+	}
+}
+
 
 func ReporteLS(id string, path string, buffer *bytes.Buffer){
 	fmt.Println("===========Reporte ls===========\n")

@@ -102,7 +102,9 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_rep(params, buffer)
 	} else if strings.Contains(command, "mkdir") {
 		fn_mkdir(params, buffer)
-	}else {
+	} else if strings.Contains(command, "mkfile") {
+		fn_mkfile(params, buffer)
+	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
 
@@ -560,33 +562,72 @@ func fn_rep(input string, buffer io.Writer) {
 func fn_mkdir(input string, buffer io.Writer) {
 	fmt.Fprintf(buffer, "DEBUG: Entrando a fn_mkdir con input: %s\n", input)
 	var path string
-var p bool = false
+	var p bool = false
 
-// Dividir en tokens por espacios
-tokens := strings.Fields(input)
+	// Dividir en tokens por espacios
+	tokens := strings.Fields(input)
 
-for _, token := range tokens {
-	if strings.HasPrefix(token, "-path=") {
-		path = strings.Trim(strings.SplitN(token, "=", 2)[1], "\"")
-	} else if token == "-p" {
-		p = true
-	} else if strings.HasPrefix(token, "-") {
-		fmt.Fprintf(buffer, "Error: El comando 'MKDIR' incluye parámetros no asociados: %s\n", token)
-		return
+	for _, token := range tokens {
+		if strings.HasPrefix(token, "-path=") {
+			path = strings.Trim(strings.SplitN(token, "=", 2)[1], "\"")
+		} else if token == "-p" {
+			p = true
+		} else if strings.HasPrefix(token, "-") {
+			fmt.Fprintf(buffer, "Error: El comando 'MKDIR' incluye parámetros no asociados: %s\n", token)
+			return
+		}
 	}
-}
 
-fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
-
-if path == "" {
-	fmt.Fprintf(buffer, "Error: MKDIR requiere parámetro obligatorio -path.\n")
-	return
-}
-	
 	fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
 
-	// Llamar a la función final
-	FileSystem.Mkdir(path, p, buffer.(*bytes.Buffer))
+	if path == "" {
+		fmt.Fprintf(buffer, "Error: MKDIR requiere parámetro obligatorio -path.\n")
+		return
+	}
+		
+		fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
+
+		// Llamar a la función final
+		FileSystem.Mkdir(path, p, buffer.(*bytes.Buffer))
+}
+
+func fn_mkfile(input string, buffer io.Writer) {
+	fmt.Fprintln(buffer, "=========== MKFILE ===========")
+	var path, cont string
+	var p bool
+
+	re := regexp.MustCompile(`-(\w+)=?("[^"]*"|\S*)`)
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		flagName := strings.ToLower(match[1])
+		flagValue := strings.Trim(match[2], "\"")
+
+		switch flagName {
+		case "path":
+			path = flagValue
+		case "cont":
+			cont = flagValue
+		case "p":
+			if match[2] == "" {
+				p = true
+			} else {
+				fmt.Fprintln(buffer, "Error: el flag -p no debe llevar valor.")
+				return
+			}
+		default:
+			fmt.Fprintf(buffer, "Error: parámetro no reconocido -%s\n", flagName)
+			return
+		}
+	}
+
+	if path == "" {
+		fmt.Fprintln(buffer, "Error: el parámetro -path es obligatorio para MKFILE.")
+		return
+	}
+
+	// Llama a la función en el FileSystem
+	FileSystem.Mkfile(path, p, cont, buffer.(*bytes.Buffer))
 }
 
 //rmgrp
