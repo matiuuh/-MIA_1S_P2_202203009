@@ -11,6 +11,7 @@ import (
 	"proyecto1/Structs"
 	"proyecto1/Utilities"
 	"strings"
+	"proyecto1/User"
 )
 
 func Mkfs(id string, type_ string, fs_ string, buffer *bytes.Buffer) {
@@ -269,6 +270,9 @@ func markUsedInodesAndBlocks(newSuperblock Structs.Superblock, file *os.File, bu
 }
 
 func CAT(files []string, buffer *bytes.Buffer) {
+	fmt.Println("Usuario activo:", User.Data.GetIDUsuario())
+	fmt.Println("Partición activa:", User.Data.GetIDPartition())
+	//fmt.Fprintf(buffer, "Error: No hay un usuario logueado")
 	// Check if a user is logged in
 	if !isUserLoggedIn() {
 		fmt.Fprintf(buffer, "Error: No hay un usuario logueado")
@@ -372,29 +376,31 @@ func CAT(files []string, buffer *bytes.Buffer) {
 
 // Función para verificar si un usuario está logueado
 func isUserLoggedIn() bool {
-	ParticionesMount := DiskManagement.GetMountedPartitions()
-
-	for _, partitions := range ParticionesMount {
-		for _, partition := range partitions {
-			if partition.LoggedIn {
-				return true
-			}
-		}
-	}
-
-	return false
+	fmt.Println("DEBUG: Usuario actual:", User.Data.GetIDUsuario())
+	fmt.Println("DEBUG: Partición actual:", User.Data.GetIDPartition())
+	return User.Data.GetIDUsuario() != "" && User.Data.GetIDPartition() != ""
 }
 
 // Función para verificar si el usuario tiene permisos
 func tienePermiso(buffer *bytes.Buffer) bool {
-	ParticionesMount := DiskManagement.GetMountedPartitions()
-	var filepath string
-	var id string
+	// Verificamos si hay sesión activa
+	if !isUserLoggedIn() {
+		fmt.Fprintln(buffer, "DEBUG: No hay sesión activa.")
+		return false
+	}
 
+	// Si el usuario es root, siempre tiene permisos
+	if User.Data.GetIDUsuario() == "root" {
+		fmt.Fprintln(buffer, "DEBUG: Usuario root tiene todos los permisos.")
+		return true
+	}
+	
+	// Obtener la partición montada activa
+	ParticionesMount := DiskManagement.GetMountedPartitions()
+	var filepath, id string
 	for _, partitions := range ParticionesMount {
 		for _, partition := range partitions {
-			// Verifica si alguna partición tiene un usuario logueado
-			if partition.LoggedIn {
+			if partition.ID == User.Data.GetIDPartition() && partition.LoggedIn {
 				filepath = partition.Path
 				id = partition.ID
 				break
@@ -402,54 +408,68 @@ func tienePermiso(buffer *bytes.Buffer) bool {
 		}
 	}
 
+	// Si no encontró la partición activa
+	if filepath == "" {
+		fmt.Fprintln(buffer, "DEBUG: No se encontró la partición activa.")
+		return false
+	}
+
+	// Abrimos el archivo del disco
 	file, err := Utilities.OpenFile(filepath, buffer)
 	if err != nil {
-		fmt.Println("Error: No se pudo abrir el archivo:", err)
+		fmt.Fprintln(buffer, "DEBUG: No se pudo abrir el archivo:", err)
 		return false
 	}
 	defer file.Close()
 
+	// Leemos el MBR
 	var TempMBR Structs.MRB
-
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
-		fmt.Println("Error: No se pudo leer el MBR:", err)
+		fmt.Fprintln(buffer, "DEBUG: No se pudo leer el MBR:", err)
 		return false
 	}
 
+	// Buscamos el índice de la partición
 	var index int = -1
-
 	for i := 0; i < 4; i++ {
-		if TempMBR.MbrPartitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
-				if TempMBR.MbrPartitions[i].Status[0] == '1' {
-					index = i
-				} else {
-					return false
-				}
-				break
-			}
+		if TempMBR.MbrPartitions[i].Size != 0 &&
+			strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) &&
+			TempMBR.MbrPartitions[i].Status[0] == '1' {
+			index = i
+			break
 		}
 	}
-
 	if index == -1 {
+		fmt.Fprintln(buffer, "DEBUG: No se encontró la partición válida.")
 		return false
 	}
 
-	var tempSuperblock Structs.Superblock
-	if err := Utilities.ReadObject(file, &tempSuperblock, int64(TempMBR.MbrPartitions[index].Start), buffer); err != nil {
+	// Leemos el Superblock
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(file, &sb, int64(TempMBR.MbrPartitions[index].Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "DEBUG: No se pudo leer el Superblock.")
 		return false
 	}
 
-	indexInode := buscarStart("/user.txt", file, tempSuperblock, buffer)
-
-	var crrInode Structs.Inode
-
-	if err := Utilities.ReadObject(file, &crrInode, int64(tempSuperblock.SB_Inode_Start+indexInode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
+	// Buscamos el inodo de /users.txt
+	indexInode := buscarStart("/users.txt", file, sb, buffer)
+	if indexInode == -1 {
+		fmt.Fprintln(buffer, "DEBUG: No se encontró el inodo de /users.txt")
 		return false
 	}
 
-	perm := string(crrInode.IN_Perm[:])
-	return strings.Contains(perm, "664")
+	// Leemos el Inodo
+	var inode Structs.Inode
+	if err := Utilities.ReadObject(file, &inode, int64(sb.SB_Inode_Start+indexInode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
+		fmt.Fprintln(buffer, "DEBUG: No se pudo leer el inodo.")
+		return false
+	}
+
+	perm := strings.Trim(string(inode.IN_Perm[:]), "\x00")
+	fmt.Fprintf(buffer, "DEBUG: Permiso leído: %s\n", perm)
+
+	// Verificamos si tiene permisos de lectura (simplificado)
+	return strings.HasPrefix(perm, "6")
 }
 
 // Función modificada para buscar y leer Fileblocks en lugar de Folderblocks
@@ -467,33 +487,45 @@ func buscarStart(path string, file *os.File, tempSuperblock Structs.Superblock, 
 
 // Cambiado para manejar FileBlock en lugar de Folderblock
 func BuscarInodoRuta(RutaPasada []string, Inode Structs.Inode, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) int32 {
+	if len(RutaPasada) == 0 {
+		return -1
+	}
+
 	SearchedName := strings.Replace(pop(&RutaPasada), " ", "", -1)
 
 	for _, block := range Inode.IN_Block {
 		if block != -1 {
-			if len(RutaPasada) == 0 { // Caso donde encontramos el archivo
-				var fileblock Structs.FileBlock
-				if err := Utilities.ReadObject(file, &fileblock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FileBlock{}))), buffer); err != nil {
+			// Revisamos si aún hay pasos por recorrer
+			if len(RutaPasada) == 0 {
+				// Es un archivo (último elemento), buscamos coincidencia exacta
+				var folder Structs.FolderBlock
+				if err := Utilities.ReadObject(file, &folder, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FolderBlock{}))), buffer); err != nil {
 					return -1
 				}
 
-				//Structs.PrintFileblock(fileblock) // Imprime el contenido del FileBlock
-				return 1
+				for _, entry := range folder.B_Content {
+					name := strings.Trim(string(entry.B_Name[:]), "\x00")
+					fmt.Fprintf(buffer, "DEBUG: buscando archivo '%s' vs entrada '%s'\n", SearchedName, name)
+					if name == SearchedName {
+						return entry.B_Inode
+					}
+				}
 			} else {
-				// En este caso seguimos buscando en los bloques de carpetas
-				var crrFolderBlock Structs.FolderBlock
-				if err := Utilities.ReadObject(file, &crrFolderBlock, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FolderBlock{}))), buffer); err != nil {
+				// Es una carpeta intermedia
+				var folder Structs.FolderBlock
+				if err := Utilities.ReadObject(file, &folder, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FolderBlock{}))), buffer); err != nil {
 					return -1
 				}
 
-				for _, folder := range crrFolderBlock.B_Content {
-					if strings.Contains(string(folder.B_Name[:]), SearchedName) {
-						var NextInode Structs.Inode
-						if err := Utilities.ReadObject(file, &NextInode, int64(tempSuperblock.SB_Inode_Start+folder.B_Inode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
+				for _, entry := range folder.B_Content {
+					name := strings.Trim(string(entry.B_Name[:]), "\x00")
+					fmt.Fprintf(buffer, "DEBUG: buscando carpeta '%s' vs entrada '%s'\n", SearchedName, name)
+					if name == SearchedName {
+						var nextInode Structs.Inode
+						if err := Utilities.ReadObject(file, &nextInode, int64(tempSuperblock.SB_Inode_Start+entry.B_Inode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
 							return -1
 						}
-
-						return BuscarInodoRuta(RutaPasada, NextInode, file, tempSuperblock, buffer)
+						return BuscarInodoRuta(RutaPasada, nextInode, file, tempSuperblock, buffer)
 					}
 				}
 			}
@@ -502,6 +534,7 @@ func BuscarInodoRuta(RutaPasada []string, Inode Structs.Inode, file *os.File, te
 
 	return -1
 }
+
 
 // Función auxiliar para extraer el último elemento de un slice
 func pop(s *[]string) string {
@@ -752,9 +785,9 @@ func buscarIndiceInodo(target Structs.Inode, file *os.File, sb Structs.Superbloc
 			continue
 		}
 
-		// Comparamos solo por bloques, UID y GID
 		if temp.IN_Uid == target.IN_Uid &&
 			temp.IN_Gid == target.IN_Gid &&
+			temp.IN_Size == target.IN_Size &&
 			string(temp.IN_Perm[:]) == string(target.IN_Perm[:]) &&
 			temp.IN_Block[0] == target.IN_Block[0] {
 			return i
@@ -921,6 +954,7 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 			}
 			for _, entry := range folder.B_Content {
 				name := strings.Trim(string(entry.B_Name[:]), "\x00")
+				fmt.Fprintf(buffer, "DEBUG: buscando '%s' vs entrada '%s'\n", part, name)
 				if name == part {
 					offset := int64(sb.SB_Inode_Start + entry.B_Inode*int32(binary.Size(Structs.Inode{})))
 					if err := Utilities.ReadObject(file, &current, offset, buffer); err == nil {
@@ -936,6 +970,25 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		if !found {
 			fmt.Fprintln(buffer, "Error MKFILE: Carpeta padre no encontrada")
 			return
+		}
+	}
+
+	// Verificar si ya existe un archivo con ese nombre en la carpeta padre
+	for _, blk := range current.IN_Block {
+		if blk == -1 {
+			continue
+		}
+		var folder Structs.FolderBlock
+		offset := int64(sb.SB_Block_Start + blk*int32(binary.Size(Structs.FolderBlock{})))
+		if err := Utilities.ReadObject(file, &folder, offset, buffer); err != nil {
+			continue
+		}
+		for _, entry := range folder.B_Content {
+			name := strings.Trim(string(entry.B_Name[:]), "\x00")
+			if name == fileName {
+				fmt.Fprintf(buffer, "Error MKFILE: Ya existe un archivo con el nombre '%s'\n", fileName)
+				return
+			}
 		}
 	}
 
@@ -976,4 +1029,28 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 	}
 
 	fmt.Fprintln(buffer, "Archivo creado exitosamente:", path)
+
+	fmt.Fprintln(buffer, "----------------------------------------------------------------------------")
+	fmt.Fprintf(buffer, "DEBUG: Archivo creado en inodo %d y bloque %d\n", inodeIdx, blockIdx)
+
+	var createdInode Structs.Inode
+	Utilities.ReadObject(file, &createdInode, int64(sb.SB_Inode_Start+inodeIdx*int32(binary.Size(Structs.Inode{}))), buffer)
+	Structs.PrintInode(createdInode)
+
+	var createdBlock Structs.FileBlock
+	Utilities.ReadObject(file, &createdBlock, int64(sb.SB_Block_Start+blockIdx*int32(binary.Size(Structs.FileBlock{}))), buffer)
+	Structs.PrintFileblock(createdBlock, buffer)
+
+	fmt.Fprintln(buffer, "\n--- DEBUG: FolderBlock del directorio padre ---")
+	for _, blk := range current.IN_Block {
+		if blk == -1 {
+			continue
+		}
+		var folder Structs.FolderBlock
+		offset := int64(sb.SB_Block_Start + blk*int32(binary.Size(Structs.FolderBlock{})))
+		if err := Utilities.ReadObject(file, &folder, offset, buffer); err != nil {
+			continue
+		}
+		Structs.PrintFolderblock(folder)
+	}
 }

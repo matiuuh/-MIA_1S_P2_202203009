@@ -381,6 +381,7 @@ func fn_logout(input string, buffer io.Writer) {
 
 //--------------------Función para cat--------------------
 func fn_cat(params string, buffer io.Writer) {
+	fmt.Fprintf(buffer, "=========== CAT ===========\n")
 	files := make(map[int]string)
 	matches := re.FindAllStringSubmatch(params, -1)
 
@@ -416,6 +417,7 @@ func fn_cat(params string, buffer io.Writer) {
 		return
 	}
 	FileSystem.CAT(orden, buffer.(*bytes.Buffer))
+	fmt.Fprintf(buffer, "==============FIN CAT===============\n")
 }
 
 //--------------------Función para mkgrp--------------------

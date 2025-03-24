@@ -39,7 +39,7 @@ func Rep(name string, path string, id string, path_file_ls string, buffer *bytes
 		Reporte_BitmapInode(id, path, buffer)//arreglar
 	} else if name == "bm_bloc" {
 		Reporte_BitmapBlock(id, path, buffer)//arreglar
-	} else if name == "bloc" {
+	} else if name == "block" {
 		ReportBloc(id, path, buffer)//desarrollar
 	} else if name == "tree" {
 		ReporteTree(id, path, buffer)//desarrollar
@@ -568,6 +568,7 @@ func ReporteInode(id string, path string, buffer *bytes.Buffer) {
 }
 
 func Reporte_BitmapInode(id string, path string, buffer *bytes.Buffer) {
+	path = corregirExtensionTxt(path) // 🔧 Forzar extensión .txt
 	dir := filepath.Dir(path)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0755)
@@ -661,6 +662,7 @@ func Reporte_BitmapInode(id string, path string, buffer *bytes.Buffer) {
 }
 
 func Reporte_BitmapBlock(id string, path string, buffer *bytes.Buffer) {
+	path = corregirExtensionTxt(path) // 🔧 Forzar extensión .txt
 	dir := filepath.Dir(path)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		err = os.MkdirAll(dir, 0755)
@@ -928,4 +930,11 @@ func ReporteLS(id string, path string, buffer *bytes.Buffer){
 
 func ReporteFile(id string, path string, buffer *bytes.Buffer){
 	fmt.Println("===========Reporte File===========\n")
+}
+
+func corregirExtensionTxt(path string) string {
+	if filepath.Ext(path) != ".txt" {
+		return strings.TrimSuffix(path, filepath.Ext(path)) + ".txt"
+	}
+	return path
 }
