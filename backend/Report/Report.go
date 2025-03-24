@@ -756,9 +756,131 @@ func Reporte_BitmapBlock(id string, path string, buffer *bytes.Buffer) {
 	fmt.Fprintf(buffer, "Reporte de BITMAP BLOCK de la partición:%s generado con éxito en la ruta: %s\n", id, path)
 }
 
-func ReportBloc(id string, path string, buffer *bytes.Buffer){
-	fmt.Println("===========Reporte de Bloques===========\n")
+func ReportBloc(id string, path string, buffer *bytes.Buffer) {
+	fmt.Fprintln(buffer, "=========== Reporte de Bloques ===========")
+
+	// 1. Obtener partición montada
+	particiones := DiskManagement.GetMountedPartitions()
+	var diskPath string
+	var encontrado bool
+	for _, lista := range particiones {
+		for _, part := range lista {
+			if part.ID == id && part.LoggedIn {
+				diskPath = part.Path
+				encontrado = true
+				break
+			}
+		}
+		if encontrado {
+			break
+		}
+	}
+
+	if !encontrado {
+		fmt.Fprintln(buffer, "Error: No se encontró partición montada con ID", id)
+		return
+	}
+
+	// 2. Leer Superblock
+	file, err := Utilities.OpenFile(diskPath, buffer)
+	if err != nil {
+		fmt.Fprintln(buffer, "Error al abrir disco:", err)
+		return
+	}
+	defer file.Close()
+
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error al leer MBR:", err)
+		return
+	}
+
+	var index int = -1
+	for i := 0; i < 4; i++ {
+		if strings.Contains(string(mbr.MbrPartitions[i].ID[:]), id) && mbr.MbrPartitions[i].Status[0] == '1' {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		fmt.Fprintln(buffer, "Error: No se encontró la partición activa en el MBR")
+		return
+	}
+
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(file, &sb, int64(mbr.MbrPartitions[index].Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "Error al leer el Superblock:", err)
+		return
+	}
+
+	// 3. Iniciar DOT
+	var dot bytes.Buffer
+	dot.WriteString("digraph G {\n")
+	dot.WriteString("rankdir=LR;\n")
+	dot.WriteString("node [shape=record, fontname=Helvetica];\n")
+
+	for i := int32(0); i < sb.SB_Blocks_Count; i++ {
+		var b byte
+		if err := Utilities.ReadObject(file, &b, int64(sb.SB_Bm_Block_Start+i), buffer); err != nil {
+			continue
+		}
+		if b == 0 {
+			continue
+		}
+
+		// Leer bloque
+		blockOffset := int64(sb.SB_Block_Start + i*int32(binary.Size(Structs.FolderBlock{})))
+		var folder Structs.FolderBlock
+		if err := Utilities.ReadObject(file, &folder, blockOffset, buffer); err == nil {
+			// FolderBlock (bloque de carpeta)
+			dot.WriteString(fmt.Sprintf("block%d [label=\"Bloque Carpeta %d|", i, i))
+			for _, entry := range folder.B_Content {
+				name := strings.Trim(string(entry.B_Name[:]), "\x00")
+				if name != "" && entry.B_Inode != -1 {
+					dot.WriteString(fmt.Sprintf("%s | %d\\l", name, entry.B_Inode))
+				}
+			}
+			dot.WriteString("\"];\n")
+			continue
+		}
+
+		var fileblock Structs.FileBlock
+		blockOffset = int64(sb.SB_Block_Start + i*int32(binary.Size(Structs.FileBlock{})))
+		if err := Utilities.ReadObject(file, &fileblock, blockOffset, buffer); err == nil {
+			// FileBlock (bloque de archivo)
+			content := strings.ReplaceAll(string(fileblock.B_Content[:]), "\"", "'")
+			content = strings.ReplaceAll(content, "\n", " ")
+			dot.WriteString(fmt.Sprintf("block%d [label=\"Bloque Archivo %d\\n%s\"];\n", i, i, content))
+			continue
+		}
+
+		// Si implementas apuntadores indirectos, también puedes detectar tipo Structs.PointerBlock
+	}
+
+	dot.WriteString("}\n")
+
+	// 4. Guardar archivo .dot
+	outputDot := strings.ReplaceAll(path, ".jpg", ".dot")
+	err = os.WriteFile(outputDot, dot.Bytes(), 0644)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error al guardar archivo DOT: %v\n", err)
+		return
+	}
+
+	// 5. Generar imagen con Graphviz
+	cmd := exec.Command("dot", "-Tjpg", outputDot, "-o", path)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		fmt.Fprintf(buffer, "Error al ejecutar Graphviz: %v\n", err)
+		fmt.Fprintf(buffer, "Detalles: %s\n", stderr.String())
+		return
+	}
+
+	fmt.Fprintf(buffer, "Reporte de bloques generado con éxito en la ruta: %s\n", path)
 }
+
 
 func ReporteTree(id string, path string, buffer *bytes.Buffer) {
 	fmt.Fprintln(buffer, "=========== Reporte Tree ===========")

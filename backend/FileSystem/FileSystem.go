@@ -346,9 +346,11 @@ func CAT(files []string, buffer *bytes.Buffer) {
 	for _, filePath := range files {
 		fmt.Printf("Imprimiendo el contenido de %s\n", filePath)
 
-		indexInode := buscarStart(filePath, file, tempSuperblock, buffer)
+		indexInode := buscarInodoPorRuta(filePath, file, tempSuperblock, buffer)
 		if indexInode == -1 {
 			fmt.Printf("Error: No se pudo encontrar el archivo %s\n", filePath)
+			//Structs.PrintFileblock(Structs.FileBlock{}, buffer)
+			//fmt.Fprintf(buffer, "------esto despues de que no se pudo encontrar------")
 			continue
 		}
 
@@ -491,43 +493,35 @@ func BuscarInodoRuta(RutaPasada []string, Inode Structs.Inode, file *os.File, te
 		return -1
 	}
 
-	SearchedName := strings.Replace(pop(&RutaPasada), " ", "", -1)
+	SearchedName := strings.TrimSpace(RutaPasada[0])
+	RutaPasada = RutaPasada[1:]
 
 	for _, block := range Inode.IN_Block {
-		if block != -1 {
-			// Revisamos si aún hay pasos por recorrer
-			if len(RutaPasada) == 0 {
-				// Es un archivo (último elemento), buscamos coincidencia exacta
-				var folder Structs.FolderBlock
-				if err := Utilities.ReadObject(file, &folder, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FolderBlock{}))), buffer); err != nil {
+		if block == -1 {
+			continue
+		}
+
+		blockOffset := int64(tempSuperblock.SB_Block_Start + block*int32(binary.Size(Structs.FolderBlock{})))
+		var folder Structs.FolderBlock
+		if err := Utilities.ReadObject(file, &folder, blockOffset, buffer); err != nil {
+			continue
+		}
+
+		for _, entry := range folder.B_Content {
+			name := strings.Trim(string(entry.B_Name[:]), "\x00")
+			fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", name)
+			if name == SearchedName {
+				if len(RutaPasada) == 0 {
+					// Último elemento, retornamos el inodo encontrado
+					return entry.B_Inode
+				}
+				// Si hay más pasos en la ruta, seguimos recursivamente
+				var nextInode Structs.Inode
+				inodeOffset := int64(tempSuperblock.SB_Inode_Start + entry.B_Inode*int32(binary.Size(Structs.Inode{})))
+				if err := Utilities.ReadObject(file, &nextInode, inodeOffset, buffer); err != nil {
 					return -1
 				}
-
-				for _, entry := range folder.B_Content {
-					name := strings.Trim(string(entry.B_Name[:]), "\x00")
-					fmt.Fprintf(buffer, "DEBUG: buscando archivo '%s' vs entrada '%s'\n", SearchedName, name)
-					if name == SearchedName {
-						return entry.B_Inode
-					}
-				}
-			} else {
-				// Es una carpeta intermedia
-				var folder Structs.FolderBlock
-				if err := Utilities.ReadObject(file, &folder, int64(tempSuperblock.SB_Block_Start+block*int32(binary.Size(Structs.FolderBlock{}))), buffer); err != nil {
-					return -1
-				}
-
-				for _, entry := range folder.B_Content {
-					name := strings.Trim(string(entry.B_Name[:]), "\x00")
-					fmt.Fprintf(buffer, "DEBUG: buscando carpeta '%s' vs entrada '%s'\n", SearchedName, name)
-					if name == SearchedName {
-						var nextInode Structs.Inode
-						if err := Utilities.ReadObject(file, &nextInode, int64(tempSuperblock.SB_Inode_Start+entry.B_Inode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
-							return -1
-						}
-						return BuscarInodoRuta(RutaPasada, nextInode, file, tempSuperblock, buffer)
-					}
-				}
+				return BuscarInodoRuta(RutaPasada, nextInode, file, tempSuperblock, buffer)
 			}
 		}
 	}
@@ -832,6 +826,12 @@ func agregarEntradaAFolderBlock(parentInode *Structs.Inode, name string, inodeIn
 
 			// Actualizar el inodo con el nuevo bloque
 			parentInode.IN_Block[i] = newBlockIndex
+
+			// DEPURACIÓN
+			fmt.Fprintf(buffer, "DEBUG: Nuevo FolderBlock creado en bloque %d\n", newBlockIndex)
+			fmt.Fprintf(buffer, "DEBUG: Insertando nombre '%s' con inodo %d en posición 0\n", name, inodeIndex)
+			fmt.Fprintf(buffer, "DEBUG: Bytes del nombre: %v\n", newFolder.B_Content[0].B_Name)
+
 			return nil
 		} else {
 			// Revisar si hay espacio en el FolderBlock existente
@@ -847,6 +847,12 @@ func agregarEntradaAFolderBlock(parentInode *Structs.Inode, name string, inodeIn
 					if err := Utilities.WriteObject(file, folder, blockOffset, buffer); err != nil {
 						return err
 					}
+
+					// DEPURACIÓN
+					fmt.Fprintf(buffer, "DEBUG: Insertando nombre '%s' en FolderBlock existente en bloque %d, posición %d\n", name, block, j)
+					fmt.Fprintf(buffer, "DEBUG: Inodo asociado: %d\n", inodeIndex)
+					fmt.Fprintf(buffer, "DEBUG: Bytes del nombre: %v\n", folder.B_Content[j].B_Name)
+
 					return nil
 				}
 			}
@@ -863,7 +869,6 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		return
 	}
 
-	// Obtener partición activa
 	partitions := DiskManagement.GetMountedPartitions()
 	var filepath, id string
 	found := false
@@ -921,22 +926,20 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 	fileName := pathParts[len(pathParts)-1]
 	parentDirs := pathParts[:len(pathParts)-1]
 
-	// Leer inodo raíz
 	rootInode := Structs.Inode{}
 	if err := Utilities.ReadObject(file, &rootInode, int64(sb.SB_Inode_Start), buffer); err != nil {
 		fmt.Fprintln(buffer, "Error MKFILE: No se pudo leer el Inodo raíz.")
 		return
 	}
 
-	// Crear carpeta si es necesario
 	err = crearCarpetas(parentDirs, rootInode, file, sb, p, buffer)
 	if err != nil {
 		fmt.Fprintln(buffer, "Error MKFILE:", err)
 		return
 	}
 
-	// Buscar inodo padre donde agregar archivo
 	current := Structs.Inode{}
+	entryInodeIndex := int32(0)
 	if err := Utilities.ReadObject(file, &current, int64(sb.SB_Inode_Start), buffer); err != nil {
 		fmt.Fprintln(buffer, "Error MKFILE: No se pudo leer el inodo raíz.")
 		return
@@ -954,8 +957,8 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 			}
 			for _, entry := range folder.B_Content {
 				name := strings.Trim(string(entry.B_Name[:]), "\x00")
-				fmt.Fprintf(buffer, "DEBUG: buscando '%s' vs entrada '%s'\n", part, name)
 				if name == part {
+					entryInodeIndex = entry.B_Inode
 					offset := int64(sb.SB_Inode_Start + entry.B_Inode*int32(binary.Size(Structs.Inode{})))
 					if err := Utilities.ReadObject(file, &current, offset, buffer); err == nil {
 						found = true
@@ -973,7 +976,6 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		}
 	}
 
-	// Verificar si ya existe un archivo con ese nombre en la carpeta padre
 	for _, blk := range current.IN_Block {
 		if blk == -1 {
 			continue
@@ -992,7 +994,6 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		}
 	}
 
-	// Crear archivo como FileBlock
 	inodeIdx, blockIdx, err := reservarInodoYBloque(file, sb, buffer)
 	if err != nil {
 		fmt.Fprintln(buffer, "Error MKFILE:", err)
@@ -1028,6 +1029,13 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		return
 	}
 
+	// <-- CAMBIO AQUI
+	offsetCurrent := int64(sb.SB_Inode_Start + entryInodeIndex*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.WriteObject(file, current, offsetCurrent, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error MKFILE: No se pudo escribir el inodo padre actualizado")
+		return
+	}
+
 	fmt.Fprintln(buffer, "Archivo creado exitosamente:", path)
 
 	fmt.Fprintln(buffer, "----------------------------------------------------------------------------")
@@ -1053,4 +1061,56 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		}
 		Structs.PrintFolderblock(folder)
 	}
+}
+
+
+func buscarInodoPorRuta(path string, file *os.File, sb Structs.Superblock, buffer *bytes.Buffer) int32 {
+	ruta := strings.Split(strings.Trim(path, "/"), "/")
+	inodoActual := int32(0) // raíz
+
+	for _, nombre := range ruta {
+		fmt.Fprintf(buffer, "DEBUG: buscando '%s' en inodo %d\n", nombre, inodoActual)
+
+		var inode Structs.Inode
+		offsetInodo := int64(sb.SB_Inode_Start + inodoActual*int32(binary.Size(Structs.Inode{})))
+		if err := Utilities.ReadObject(file, &inode, offsetInodo, buffer); err != nil {
+			fmt.Fprintf(buffer, "Error al leer inodo %d\n", inodoActual)
+			return -1
+		}
+
+		encontrado := false
+		for i := 0; i < 12; i++ { // Solo los bloques directos
+			bloque := inode.IN_Block[i]
+			if bloque == -1 {
+				continue
+			}
+
+			var folder Structs.FolderBlock
+			offsetBloque := int64(sb.SB_Block_Start + bloque*int32(binary.Size(Structs.FolderBlock{})))
+			if err := Utilities.ReadObject(file, &folder, offsetBloque, buffer); err != nil {
+				fmt.Fprintf(buffer, "Error al leer folder block %d\n", bloque)
+				return -1
+			}
+
+			for _, entrada := range folder.B_Content {
+				nombreEntrada := strings.Trim(string(entrada.B_Name[:]), "\x00")
+				fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", nombreEntrada)
+				if nombreEntrada == nombre && entrada.B_Inode != -1 {
+					inodoActual = entrada.B_Inode
+					encontrado = true
+					break
+				}
+			}
+			if encontrado {
+				break
+			}
+		}
+
+		if !encontrado {
+			fmt.Fprintf(buffer, "No se encontró el elemento '%s'\n", nombre)
+			return -1
+		}
+	}
+
+	return inodoActual
 }
