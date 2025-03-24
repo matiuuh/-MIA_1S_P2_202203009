@@ -464,7 +464,7 @@ func ReporteInode(id string, path string, buffer *bytes.Buffer) {
 	}
 
 	if !ParticionEncontrada {
-		fmt.Fprintf(buffer, "Error REP SB: No se encontró la partición con el ID: %s.\n", id)
+		fmt.Fprintf(buffer, "Error REP INODE: No se encontró la partición con el ID: %s.\n", id)
 		return
 	}
 
@@ -486,7 +486,7 @@ func ReporteInode(id string, path string, buffer *bytes.Buffer) {
 				if MBRTemporal.MbrPartitions[i].Status[0] == '1' {
 					index = i
 				} else {
-					fmt.Fprintf(buffer, "Error REP Inode: La partición con el ID:%s no está montada.\n", id)
+					fmt.Fprintf(buffer, "Error REP INODE: La partición con el ID:%s no está montada.\n", id)
 					return
 				}
 				break
@@ -495,77 +495,86 @@ func ReporteInode(id string, path string, buffer *bytes.Buffer) {
 	}
 
 	if index == -1 {
-		fmt.Fprintf(buffer, "Error REP Inode: No se encontró la partición con el ID: %s.\n", id)
+		fmt.Fprintf(buffer, "Error REP INODE: No se encontró la partición con el ID: %s.\n", id)
 		return
 	}
 
-	var TemporalSuperBloque = Structs.Superblock{}
-	if err := Utilities.ReadObject(archivo, &TemporalSuperBloque, int64(MBRTemporal.MbrPartitions[index].Start), buffer); err != nil {
-		fmt.Fprintf(buffer, "Error REP Inode: Error al leer el SuperBloque.\n")
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(archivo, &sb, int64(MBRTemporal.MbrPartitions[index].Start), buffer); err != nil {
+		fmt.Fprintf(buffer, "Error REP INODE: Error al leer el SuperBloque.\n")
 		return
 	}
 
 	var dot bytes.Buffer
-
 	fmt.Fprintln(&dot, "digraph G {")
 	fmt.Fprintln(&dot, "node [shape=none];")
 	fmt.Fprintln(&dot, "fontname=\"Courier New\";")
-	fmt.Fprintln(&dot, "title [label=\"REPORTE INODE\nMATEO DIEGO\n202203009\"];")
 
-	for i := 0; i < int(TemporalSuperBloque.SB_Inodes_Count); i++ {
+	for i := 0; i < int(sb.SB_Inodes_Count); i++ {
 		var inode Structs.Inode
-
-		if err := Utilities.ReadObject(archivo, &inode, int64(TemporalSuperBloque.SB_Inode_Start)+int64(i)*int64(TemporalSuperBloque.SB_Inode_Size), buffer); err != nil {
-			fmt.Println("Error al leer el inodo:", err)
+		offset := int64(sb.SB_Inode_Start) + int64(i)*int64(binary.Size(Structs.Inode{}))
+		if err := Utilities.ReadObject(archivo, &inode, offset, buffer); err != nil {
 			continue
 		}
 
 		if inode.IN_Size > 0 {
 			fmt.Fprintf(&dot, "inode%d [label=<\n", i)
-			fmt.Fprintf(&dot, "<table border='0' cellborder='1' cellspacing='0' cellpadding='10'>\n")
-			fmt.Fprintf(&dot, "<tr><td colspan='2' bgcolor='skyblue'>Inode %d</td></tr>\n", i)
-			fmt.Fprintf(&dot, "<tr><td>UID</td><td>%d</td></tr>\n", inode.IN_Uid)
-			fmt.Fprintf(&dot, "<tr><td>GID</td><td>%d</td></tr>\n", inode.IN_Gid)
-			fmt.Fprintf(&dot, "<tr><td>Size</td><td>%d</td></tr>\n", inode.IN_Size)
-			fmt.Fprintf(&dot, "<tr><td>ATime</td><td>%s</td></tr>\n", html.EscapeString(string(inode.IN_Atime[:])))
-			fmt.Fprintf(&dot, "<tr><td>CTime</td><td>%s</td></tr>\n", html.EscapeString(string(inode.IN_Ctime[:])))
-			fmt.Fprintf(&dot, "<tr><td>MTime</td><td>%s</td></tr>\n", html.EscapeString(string(inode.IN_Mtime[:])))
-			fmt.Fprintf(&dot, "<tr><td>Blocks</td><td>%v</td></tr>\n", inode.IN_Block)
-			//fmt.Fprintf(&dot, "<tr><td>Type</td><td>%c</td></tr>\n", inode.IN_Type[0])
-			fmt.Fprintf(&dot, "<tr><td>Perms</td><td>%v</td></tr>\n", inode.IN_Perm)
-			fmt.Fprintf(&dot, "</table>\n")
-			fmt.Fprintf(&dot, " >];\n")
+			fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+			fmt.Fprintf(&dot, "<tr><td colspan='2' bgcolor='skyblue'>Inodo %d</td></tr>\n", i)
+			fmt.Fprintf(&dot, "<tr><td>i_uid</td><td>%d</td></tr>\n", inode.IN_Uid)
+			fmt.Fprintf(&dot, "<tr><td>i_gid</td><td>%d</td></tr>\n", inode.IN_Gid)
+			fmt.Fprintf(&dot, "<tr><td>i_size</td><td>%d</td></tr>\n", inode.IN_Size)
+		
+			atime := html.EscapeString(strings.TrimSpace(string(bytes.Trim(inode.IN_Atime[:], "\x00"))))
+			ctime := html.EscapeString(strings.TrimSpace(string(bytes.Trim(inode.IN_Ctime[:], "\x00"))))
+			mtime := html.EscapeString(strings.TrimSpace(string(bytes.Trim(inode.IN_Mtime[:], "\x00"))))
+		
+			fmt.Fprintf(&dot, "<tr><td>i_atime</td><td>%s</td></tr>\n", atime)
+			fmt.Fprintf(&dot, "<tr><td>i_ctime</td><td>%s</td></tr>\n", ctime)
+			fmt.Fprintf(&dot, "<tr><td>i_mtime</td><td>%s</td></tr>\n", mtime)
+		
+			for j, blk := range inode.IN_Block {
+				if blk != -1 {
+					fmt.Fprintf(&dot, "<tr><td>i_block_%d</td><td>%d</td></tr>\n", j, blk)
+				}
+			}
+		
+			perm := html.EscapeString(strings.TrimSpace(string(bytes.Trim(inode.IN_Perm[:], "\x00"))))
+			fmt.Fprintf(&dot, "<tr><td>i_perm</td><td>%s</td></tr>\n", perm)
+		
+			fmt.Fprintln(&dot, "</table>>];")
 		}
 	}
+
 	fmt.Fprintln(&dot, "}")
 
-	RutaReporte := "REPORTEINODE.dot"
-	err = os.WriteFile(RutaReporte, dot.Bytes(), 0644)
+	// Guardar archivo DOT
+	dotFile := strings.ReplaceAll(path, ".jpg", ".dot")
+	err = os.WriteFile(dotFile, dot.Bytes(), 0644)
 	if err != nil {
-		fmt.Fprintf(buffer, "Error REP INODE: Error al escribir el archivo DOT.\n")
-		fmt.Println("Error REP DISK:", err)
+		fmt.Fprintf(buffer, "Error REP INODE: No se pudo escribir el archivo DOT.\n")
 		return
 	}
+
+	// Asegurar directorio
 	dir := filepath.Dir(path)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		err = os.MkdirAll(dir, 0755)
-		if err != nil {
-			fmt.Fprintf(buffer, "Error REP INODE: Error al crear el directorio.\n")
-			fmt.Println("Error REP INODE:", err)
-			return
-		}
+		_ = os.MkdirAll(dir, 0755)
 	}
-	cmd := exec.Command("dot", "-Tjpg", RutaReporte, "-o", path)
+
+	// Ejecutar Graphviz
+	cmd := exec.Command("dot", "-Tjpg", dotFile, "-o", path)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err = cmd.Run()
 	if err != nil {
-		fmt.Fprintf(buffer, "Error REP INODE: Error al ejecutar Graphviz.")
-		fmt.Println("Error REP INODE:", err)
+		fmt.Fprintf(buffer, "Error REP INODE: Graphviz falló: %s\n", stderr.String())
 		return
 	}
-	fmt.Fprintf(buffer, "Reporte de INODE de la partición:%s generado con éxito en la ruta: %s\n", id, path)
+
+	fmt.Fprintf(buffer, "Reporte de INODE generado correctamente en %s\n", path)
 }
+
 
 func Reporte_BitmapInode(id string, path string, buffer *bytes.Buffer) {
 	path = corregirExtensionTxt(path) // 🔧 Forzar extensión .txt

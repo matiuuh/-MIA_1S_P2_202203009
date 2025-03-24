@@ -1005,6 +1005,10 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 	newInode.IN_Gid = 1
 	newInode.IN_Size = int32(len(content))
 	copy(newInode.IN_Perm[:], "664")
+	now := time.Now().Format("2006-01-02 15:04:05")
+	copy(newInode.IN_Atime[:], now)
+	copy(newInode.IN_Ctime[:], now)
+	copy(newInode.IN_Mtime[:], now)
 	for i := 0; i < 15; i++ {
 		newInode.IN_Block[i] = -1
 	}
