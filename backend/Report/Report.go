@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"encoding/binary"
+	"proyecto1/FileSystem"
 )
 
 func Rep(name string, path string, id string, path_file_ls string, buffer *bytes.Buffer) {
@@ -34,19 +35,23 @@ func Rep(name string, path string, id string, path_file_ls string, buffer *bytes
 	} else if name == "sb" {
 		ReporteSB(id, path, buffer)
 	} else if name == "inode" {
-		ReporteInode(id, path, buffer)//arreglar
+		ReporteInode(id, path, buffer)
 	} else if name == "bm_inode" {
-		Reporte_BitmapInode(id, path, buffer)//arreglar
+		Reporte_BitmapInode(id, path, buffer)
 	} else if name == "bm_bloc" {
-		Reporte_BitmapBlock(id, path, buffer)//arreglar
+		Reporte_BitmapBlock(id, path, buffer)
 	} else if name == "block" {
-		ReportBloc(id, path, buffer)//desarrollar
+		ReportBloc(id, path, buffer)
 	} else if name == "tree" {
 		ReporteTree(id, path, buffer)//desarrollar
 	} else if name == "ls" {
 		ReporteLS(id, path, buffer)//desarrollar
 	} else if name == "file" {
-		ReporteFile(id, path, buffer)//desarrollar
+		if path_file_ls == "" {
+			fmt.Fprintf(buffer, "Error REP FILE: Debes especificar el parámetro -path_file_ls\n")
+			return
+		}
+		ReporteFile(id, path, buffer, path_file_ls)
 	} else {
 		fmt.Fprintf(buffer, "Error REP: El tipo de reporte no es válido.\n")
 	}
@@ -1059,8 +1064,108 @@ func ReporteLS(id string, path string, buffer *bytes.Buffer){
 	fmt.Println("===========Reporte ls===========\n")
 }
 
-func ReporteFile(id string, path string, buffer *bytes.Buffer){
-	fmt.Println("===========Reporte File===========\n")
+func ReporteFile(id string, outputPath string, buffer *bytes.Buffer, filePathLs string) {
+	fmt.Fprintln(buffer, "=========== REPORTE FILE ===========")
+
+	if !FileSystem.IsUserLoggedInREPORTE() {
+		fmt.Fprintln(buffer, "Error REP FILE: No hay una sesión activa.")
+		return
+	}
+
+	// Obtener partición activa
+	particiones := DiskManagement.GetMountedPartitions()
+	var diskPath string
+	found := false
+	for _, parts := range particiones {
+		for _, part := range parts {
+			if part.ID == id && part.LoggedIn {
+				diskPath = part.Path
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		fmt.Fprintf(buffer, "Error REP FILE: No se encontró la partición con ID %s\n", id)
+		return
+	}
+
+	// Abrir archivo del disco
+	file, err := Utilities.OpenFile(diskPath, buffer)
+	if err != nil {
+		fmt.Fprintln(buffer, "Error REP FILE: No se pudo abrir el archivo del disco.")
+		return
+	}
+	defer file.Close()
+
+	// Leer MBR y Superbloque
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error REP FILE: No se pudo leer el MBR.")
+		return
+	}
+
+	var partitionIndex = -1
+	for i := 0; i < 4; i++ {
+		if strings.Contains(string(mbr.MbrPartitions[i].ID[:]), id) && mbr.MbrPartitions[i].Status[0] == '1' {
+			partitionIndex = i
+			break
+		}
+	}
+	if partitionIndex == -1 {
+		fmt.Fprintln(buffer, "Error REP FILE: Partición no válida o no montada.")
+		return
+	}
+
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(file, &sb, int64(mbr.MbrPartitions[partitionIndex].Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "Error REP FILE: No se pudo leer el superbloque.")
+		return
+	}
+
+	// Buscar inodo del archivo
+	indexInode := FileSystem.BuscarInodoPorRutaREPORTE(filePathLs, file, sb, buffer)
+	if indexInode == -1 {
+		fmt.Fprintf(buffer, "Error REP FILE: No se encontró el archivo %s\n", filePathLs)
+		return
+	}
+
+	var inode Structs.Inode
+	offsetInode := int64(sb.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &inode, offsetInode, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error REP FILE: No se pudo leer el inodo del archivo.")
+		return
+	}
+
+	// Leer contenido del archivo desde los bloques
+	var contenido strings.Builder
+	for _, block := range inode.IN_Block {
+		if block == -1 {
+			continue
+		}
+		var fb Structs.FileBlock
+		offset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.FileBlock{})))
+		if err := Utilities.ReadObject(file, &fb, offset, buffer); err != nil {
+			continue
+		}
+		contenido.WriteString(strings.TrimRight(string(fb.B_Content[:]), "\x00"))
+	}
+
+	// Crear archivo de salida
+	dir := filepath.Dir(outputPath)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		_ = os.MkdirAll(dir, 0755)
+	}
+
+	if err := os.WriteFile(outputPath, []byte(contenido.String()), 0644); err != nil {
+		fmt.Fprintln(buffer, "Error REP FILE: No se pudo escribir el archivo de salida.")
+		return
+	}
+
+	fmt.Fprintf(buffer, "Reporte de archivo generado exitosamente en: %s\n", outputPath)
 }
 
 func corregirExtensionTxt(path string) string {

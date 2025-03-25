@@ -538,7 +538,7 @@ func fn_rep(input string, buffer io.Writer) {
 	nombre := fs.String("name", "", "Nombre")
 	ruta := fs.String("path", "full", "Ruta")
 	ID := fs.String("id", "", "IDParticion")
-	path_file_ls := fs.String("path_file_l", "", "PathFile")
+	path_file_ls := fs.String("path_file_ls", "", "PathFile")
 
 	fs.Parse(os.Args[1:])
 	matches := re.FindAllStringSubmatch(input, -1)
@@ -550,7 +550,7 @@ func fn_rep(input string, buffer io.Writer) {
 		valorFlag = strings.Trim(valorFlag, "\"")
 
 		switch nombreFlag {
-		case "name", "path", "id", "path_file_l":
+		case "name", "path", "id", "path_file_ls":
 			fs.Set(nombreFlag, valorFlag)
 		default:
 			fmt.Fprintf(buffer, "Error: El comando 'REP' incluye parámetros no asociados.\n")

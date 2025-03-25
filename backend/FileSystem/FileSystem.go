@@ -1118,3 +1118,61 @@ func buscarInodoPorRuta(path string, file *os.File, sb Structs.Superblock, buffe
 
 	return inodoActual
 }
+
+//-------------metodos adicionales para reportes----------------
+func BuscarInodoPorRutaREPORTE(path string, file *os.File, sb Structs.Superblock, buffer *bytes.Buffer) int32 {
+	ruta := strings.Split(strings.Trim(path, "/"), "/")
+	inodoActual := int32(0) // raíz
+
+	for _, nombre := range ruta {
+		fmt.Fprintf(buffer, "DEBUG: buscando '%s' en inodo %d\n", nombre, inodoActual)
+
+		var inode Structs.Inode
+		offsetInodo := int64(sb.SB_Inode_Start + inodoActual*int32(binary.Size(Structs.Inode{})))
+		if err := Utilities.ReadObject(file, &inode, offsetInodo, buffer); err != nil {
+			fmt.Fprintf(buffer, "Error al leer inodo %d\n", inodoActual)
+			return -1
+		}
+
+		encontrado := false
+		for i := 0; i < 12; i++ { // Solo los bloques directos
+			bloque := inode.IN_Block[i]
+			if bloque == -1 {
+				continue
+			}
+
+			var folder Structs.FolderBlock
+			offsetBloque := int64(sb.SB_Block_Start + bloque*int32(binary.Size(Structs.FolderBlock{})))
+			if err := Utilities.ReadObject(file, &folder, offsetBloque, buffer); err != nil {
+				fmt.Fprintf(buffer, "Error al leer folder block %d\n", bloque)
+				return -1
+			}
+
+			for _, entrada := range folder.B_Content {
+				nombreEntrada := strings.Trim(string(entrada.B_Name[:]), "\x00")
+				fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", nombreEntrada)
+				if nombreEntrada == nombre && entrada.B_Inode != -1 {
+					inodoActual = entrada.B_Inode
+					encontrado = true
+					break
+				}
+			}
+			if encontrado {
+				break
+			}
+		}
+
+		if !encontrado {
+			fmt.Fprintf(buffer, "No se encontró el elemento '%s'\n", nombre)
+			return -1
+		}
+	}
+
+	return inodoActual
+}
+
+func IsUserLoggedInREPORTE() bool {
+	fmt.Println("DEBUG: Usuario actual:", User.Data.GetIDUsuario())
+	fmt.Println("DEBUG: Partición actual:", User.Data.GetIDPartition())
+	return User.Data.GetIDUsuario() != "" && User.Data.GetIDPartition() != ""
+}
