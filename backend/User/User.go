@@ -9,6 +9,7 @@ import (
 	"proyecto1/Utilities"
 	"strings"
 	"bytes"
+	"math"
 )
 
 // Estructura de partición de usuario
@@ -315,44 +316,74 @@ func LogOut(buffer *bytes.Buffer) {
 }
 
 // MKUSER
-func AppendToFileBlock(inode *Structs.Inode, newData string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer) error {
-	// Leer el contenido existente del archivo utilizando la función GetInodeFileData
+func AppendToFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer) error {
+	// Leer contenido existente
 	existingData := GetInodeFileData(*inode, file, superblock, buffer)
-
-	// Concatenar el nuevo contenido
 	fullData := existingData + newData
+	dataBytes := []byte(fullData)
 
-	// Asegurarse de que el contenido no exceda el tamaño del bloque
-	if len(fullData) > len(inode.IN_Block)*binary.Size(Structs.FileBlock{}) {
-		// Si el contenido excede, necesitas manejar bloques adicionales
-		return fmt.Errorf("el tamaño del archivo excede la capacidad del bloque actual y no se ha implementado la creación de bloques adicionales")
+	blockSize := binary.Size(Structs.FileBlock{})
+	numBlocks := int(math.Ceil(float64(len(dataBytes)) / float64(blockSize)))
+
+	fmt.Fprintf(buffer, "[DEBUG] Datos existentes en users.txt:\n%s\n", existingData)
+	fmt.Fprintf(buffer, "[DEBUG] Tamaño total en bytes: %d, Bloques necesarios: %d\n", len(dataBytes), numBlocks)
+
+	if numBlocks > 12 {
+		return fmt.Errorf("el archivo users.txt excede el límite de bloques directos (12)")
 	}
 
-	// Escribir el contenido actualizado en el bloque existente
-	var updatedFileBlock Structs.FileBlock
-	copy(updatedFileBlock.B_Content[:], fullData)
+	for i := 0; i < numBlocks; i++ {
+		start := i * blockSize
+		end := start + blockSize
+		if end > len(dataBytes) {
+			end = len(dataBytes)
+		}
 
-	// Mostrar lo que estamos escribiendo
-	fmt.Println("Escribiendo el bloque actualizado con los siguientes datos:")
-	fmt.Println(string(updatedFileBlock.B_Content[:]))
+		var block Structs.FileBlock
+		copy(block.B_Content[:], dataBytes[start:end])
 
-	// Escribir el contenido en el archivo
-	blockPos := int64(superblock.SB_Block_Start + inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{})))
-	if err := Utilities.WriteObject(file, updatedFileBlock, blockPos, buffer); err != nil {
-		return fmt.Errorf("error al escribir el bloque actualizado: %v", err)
+		// Si el bloque no está asignado, asignarlo del bitmap
+		if inode.IN_Block[i] == -1 {
+			fmt.Fprintf(buffer, "[DEBUG] Bloque %d no asignado, buscando en bitmap...\n", i)
+			var found bool
+			for j := int32(0); j < superblock.SB_Blocks_Count; j++ {
+				var bit byte
+				pos := int64(superblock.SB_Bm_Block_Start + j)
+				if err := Utilities.ReadObject(file, &bit, pos, buffer); err != nil {
+					return err
+				}
+				if bit == 0 {
+					inode.IN_Block[i] = j
+					// Marcar como usado
+					if err := Utilities.WriteObject(file, byte(1), pos, buffer); err != nil {
+						return err
+					}
+					fmt.Fprintf(buffer, "[DEBUG] Bloque libre encontrado y asignado: %d\n", j)
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("error: no hay bloques libres disponibles")
+			}
+		}
+
+		blockOffset := int64(superblock.SB_Block_Start + inode.IN_Block[i]*int32(blockSize))
+		fmt.Fprintf(buffer, "[DEBUG] Escribiendo bloque %d en posición %d\n", i, blockOffset)
+		if err := Utilities.WriteObject(file, block, blockOffset, buffer); err != nil {
+			return fmt.Errorf("error al escribir bloque %d: %v", i, err)
+		}
 	}
 
-	// Actualizar el tamaño del inodo
-	inode.IN_Size = int32(len(fullData))
+	inode.IN_Size = int32(len(dataBytes))
 
-	// Escribir el inodo actualizado en el archivo
-	inodePos := int64(superblock.SB_Inode_Start + inode.IN_Block[0]*int32(binary.Size(Structs.Inode{})))
-	if err := Utilities.WriteObject(file, *inode, inodePos, buffer); err != nil {
+	inodeOffset := int64(superblock.SB_Inode_Start + inodeIndex*int32(binary.Size(Structs.Inode{})))
+	fmt.Fprintf(buffer, "[DEBUG] Escribiendo inodo actualizado en posición %d\n", inodeOffset)
+	if err := Utilities.WriteObject(file, *inode, inodeOffset, buffer); err != nil {
 		return fmt.Errorf("error al actualizar el inodo: %v", err)
 	}
 
-	fmt.Println("Inodo actualizado correctamente con el nuevo tamaño:", inode.IN_Size)
-
+	fmt.Fprintf(buffer, "[DEBUG] Archivo users.txt actualizado con éxito. Total bloques usados: %d\n", numBlocks)
 	return nil
 }
 
@@ -458,7 +489,7 @@ func Mkgrp(name string, buffer *bytes.Buffer) {
 	// Añadir el nuevo grupo al archivo claramente
 	newGroup := fmt.Sprintf("%d,G,%s\n", groupID, name)
 
-	err = AppendToFileBlock(&usersInode, newGroup, file, tempSuperblock, buffer)
+	err = AppendToFileBlock(&usersInode, indexInode, newGroup, file, tempSuperblock, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error MKGRP: Al escribir nuevo grupo: %v\n", err)
 		return
@@ -608,7 +639,7 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		lines = append(lines, userLine) // Añadir la línea restaurada
 		// Escribir el archivo actualizado
 		newData := strings.Join(lines, "\n")
-		err := AppendToFileBlock(&usersInode, newData, file, tempSuperblock, buffer)
+		err := AppendToFileBlock(&usersInode, indexInode, newData, file, tempSuperblock, buffer)
 		if err != nil {
 			fmt.Fprintf(buffer, "Error MKUSR: Al escribir el archivo actualizado: %v\n", err)
 			return
@@ -628,7 +659,7 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 	newUser := fmt.Sprintf("%d,U,%s,%s,%s\n", userID, grp, user, pass)
 
 	// Añadir el nuevo usuario al archivo
-	err = AppendToFileBlock(&usersInode, newUser, file, tempSuperblock, buffer)
+	err = AppendToFileBlock(&usersInode, indexInode, newUser, file, tempSuperblock, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error MKUSR: Al escribir nuevo usuario: %v\n", err)
 		return
@@ -707,7 +738,7 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 	// Buscar archivo /users.txt
 	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
 	if indexInode == -1 {
-		fmt.Fprintf(buffer, "Error RMUSR: No se encontró el archivo /users.txt\n", err)
+		fmt.Fprintf(buffer, "Error RMUSR: No se encontró el archivo /users.txt\n")
 		return
 	}
 
@@ -746,7 +777,7 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 	}
 
 	// Escribir el archivo /users.txt actualizado
-	err = AppendToFileBlock(&usersInode, newData, file, tempSuperblock, buffer)
+	err = AppendToFileBlock(&usersInode, indexInode, newData, file, tempSuperblock, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error RMUSR: Al escribir el archivo actualizado: %v\n", err)
 		return
@@ -754,26 +785,4 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 
 	// Confirmación de eliminación
 	fmt.Fprintf(buffer, "Usuario '%s' eliminado exitosamente.\n", user)
-}
-
-func WriteFileBlock(inode *Structs.Inode, content string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer, indexInode int32) error {
-    // Escribir el contenido en el bloque
-    var fileBlock Structs.FileBlock
-    copy(fileBlock.B_Content[:], content)
-    
-    blockPos := int64(superblock.SB_Block_Start + inode.IN_Block[0]*int32(binary.Size(Structs.FileBlock{})))
-    if err := Utilities.WriteObject(file, fileBlock, blockPos, buffer); err != nil {
-        return fmt.Errorf("error al escribir el bloque: %v", err)
-    }
-    
-    // Actualizar el tamaño del inodo
-    inode.IN_Size = int32(len(content))
-    
-    // Escribir el inodo actualizado usando el índice pasado como parámetro
-    inodePos := int64(superblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
-    if err := Utilities.WriteObject(file, *inode, inodePos, buffer); err != nil {
-        return fmt.Errorf("error al actualizar el inodo: %v", err)
-    }
-    
-    return nil
 }

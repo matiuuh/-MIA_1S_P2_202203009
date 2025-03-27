@@ -45,7 +45,11 @@ func Rep(name string, path string, id string, path_file_ls string, buffer *bytes
 	} else if name == "tree" {
 		ReporteTree(id, path, buffer)//desarrollar
 	} else if name == "ls" {
-		ReporteLS(id, path, buffer)//desarrollar
+		if path_file_ls == "" {
+			fmt.Fprintf(buffer, "Error REP LS: Debes especificar el parámetro -path_file_ls\n")
+			return
+		}
+		ReporteLS(id, path, buffer, path_file_ls)//desarrollar
 	} else if name == "file" {
 		if path_file_ls == "" {
 			fmt.Fprintf(buffer, "Error REP FILE: Debes especificar el parámetro -path_file_ls\n")
@@ -1059,10 +1063,156 @@ func generarArbolInodos(index int32, sb *Structs.Superblock, file *os.File, dot 
 	}
 }
 
+func ReporteLS(id string, path string, buffer *bytes.Buffer, pathFileLs string) {
+	fmt.Fprintln(buffer, "=========== REPORTE LS ===========")
 
-func ReporteLS(id string, path string, buffer *bytes.Buffer){
-	fmt.Println("===========Reporte ls===========\n")
+	if !FileSystem.IsUserLoggedInREPORTE() {
+		fmt.Fprintln(buffer, "Error REP LS: No hay una sesión activa.")
+		return
+	}
+
+	// Obtener partición montada
+	particiones := DiskManagement.GetMountedPartitions()
+	var diskPath string
+	found := false
+	for _, parts := range particiones {
+		for _, part := range parts {
+			if part.ID == id && part.LoggedIn {
+				diskPath = part.Path
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		fmt.Fprintf(buffer, "Error REP LS: No se encontró la partición con ID %s\n", id)
+		return
+	}
+
+	// Abrir disco
+	file, err := Utilities.OpenFile(diskPath, buffer)
+	if err != nil {
+		fmt.Fprintln(buffer, "Error REP LS: No se pudo abrir el disco.")
+		return
+	}
+	defer file.Close()
+
+	// Leer MBR y Superbloque
+	var mbr Structs.MRB
+	if err := Utilities.ReadObject(file, &mbr, 0, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error REP LS: No se pudo leer el MBR.")
+		return
+	}
+
+	var index = -1
+	for i := 0; i < 4; i++ {
+		if strings.Contains(string(mbr.MbrPartitions[i].ID[:]), id) && mbr.MbrPartitions[i].Status[0] == '1' {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		fmt.Fprintf(buffer, "Error REP LS: Partición con ID %s no válida.\n", id)
+		return
+	}
+
+	var sb Structs.Superblock
+	if err := Utilities.ReadObject(file, &sb, int64(mbr.MbrPartitions[index].Start), buffer); err != nil {
+		fmt.Fprintln(buffer, "Error REP LS: No se pudo leer el SuperBloque.")
+		return
+	}
+
+	// Obtener inodo objetivo
+	indexInodo := FileSystem.BuscarInodoPorRutaREPORTE(pathFileLs, file, sb, buffer)
+	if indexInodo == -1 {
+		fmt.Fprintf(buffer, "Error REP LS: No se encontró la ruta: %s\n", pathFileLs)
+		return
+	}
+
+	var inode Structs.Inode
+	offsetInode := int64(sb.SB_Inode_Start + indexInodo*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &inode, offsetInode, buffer); err != nil {
+		fmt.Fprintln(buffer, "Error REP LS: No se pudo leer el inodo objetivo.")
+		return
+	}
+
+	// Generar el archivo DOT
+	var dot bytes.Buffer
+	fmt.Fprintln(&dot, "digraph G {")
+	fmt.Fprintln(&dot, "node [shape=plaintext];")
+	fmt.Fprintln(&dot, "ls [label=<")
+	fmt.Fprintln(&dot, "<table border='1' cellborder='1' cellspacing='0'>")
+	fmt.Fprintln(&dot, "<tr><td><b>Permisos</b></td><td><b>Owner</b></td><td><b>Grupo</b></td><td><b>Size (en Bytes)</b></td><td><b>Fecha</b></td><td><b>Hora</b></td><td><b>Tipo</b></td><td><b>Name</b></td></tr>")
+
+	// Leer y mostrar información de archivos/carpetas del inodo objetivo
+	for _, blk := range inode.IN_Block {
+		if blk == -1 {
+			continue
+		}
+		var folder Structs.FolderBlock
+		offset := int64(sb.SB_Block_Start + blk*int32(binary.Size(Structs.FolderBlock{})))
+		if err := Utilities.ReadObject(file, &folder, offset, buffer); err != nil {
+			continue
+		}
+		for _, entry := range folder.B_Content {
+			name := strings.Trim(string(entry.B_Name[:]), "\x00")
+			if name == "" || name == "." || name == ".." {
+				continue
+			}
+			var hijo Structs.Inode
+			hijoOffset := int64(sb.SB_Inode_Start + entry.B_Inode*int32(binary.Size(Structs.Inode{})))
+			if err := Utilities.ReadObject(file, &hijo, hijoOffset, buffer); err != nil {
+				continue
+			}
+
+			perm := string(hijo.IN_Perm[:])
+			uid := hijo.IN_Uid
+			gid := hijo.IN_Gid
+			size := hijo.IN_Size
+			fecha := strings.Trim(string(hijo.IN_Ctime[:]), "\x00")
+			hora := strings.Trim(string(hijo.IN_Mtime[:]), "\x00")
+			tipo := "Archivo"
+			if hijo.IN_Block[0] != -1 {
+				tipo = "Carpeta"
+			}
+
+			fmt.Fprintf(&dot, "<tr><td>%s</td><td>User%d</td><td>Group%d</td><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>\n",
+				perm, uid, gid, size, fecha, hora, tipo, name)
+		}
+	}
+
+	fmt.Fprintln(&dot, "</table>")
+	fmt.Fprintln(&dot, ">];")
+	fmt.Fprintln(&dot, "}")
+
+	// Guardar el archivo .dot
+	dotPath := strings.ReplaceAll(path, ".jpg", ".dot")
+	if err := os.WriteFile(dotPath, dot.Bytes(), 0644); err != nil {
+		fmt.Fprintf(buffer, "Error REP LS: No se pudo escribir el archivo DOT.\n")
+		return
+	}
+
+	// Asegurar carpeta de destino
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		_ = os.MkdirAll(dir, 0755)
+	}
+
+	// Ejecutar Graphviz
+	cmd := exec.Command("dot", "-Tjpg", dotPath, "-o", path)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(buffer, "Error REP LS: Graphviz falló: %s\n", stderr.String())
+		return
+	}
+
+	fmt.Fprintf(buffer, "Reporte LS generado exitosamente en: %s\n", path)
 }
+
 
 func ReporteFile(id string, outputPath string, buffer *bytes.Buffer, filePathLs string) {
 	fmt.Fprintln(buffer, "=========== REPORTE FILE ===========")
