@@ -800,3 +800,121 @@ func OverwriteFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, 
 	// Usar AppendToFileBlock para volver a escribir desde cero
 	return AppendToFileBlock(inode, inodeIndex, newData, file, superblock, buffer)
 }
+
+//--------------------RMGRP--------------------
+//--------------------RMGRP--------------------
+func Rmgrp(name string, buffer *bytes.Buffer) {
+	fmt.Fprint(buffer, "=============RMGRP=============\n")
+
+	// Validar que el usuario sea root
+	if Data.GetIDUsuario() != "root" {
+		fmt.Fprintf(buffer, "Error RMGRP: Solo el usuario 'root' puede eliminar grupos.\n")
+		return
+	}
+
+	// Buscar partición montada
+	mountedPartitions := DiskManagement.GetMountedPartitions()
+	var filePath string
+	var partitionFound bool
+	for _, Particiones := range mountedPartitions {
+		for _, Particion := range Particiones {
+			if Particion.ID == Data.GetIDPartition() {
+				filePath = Particion.Path
+				partitionFound = true
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+	if !partitionFound {
+		fmt.Fprintf(buffer, "Error RMGRP: No se encontró ninguna partición montada con el ID: %s\n", Data.GetIDPartition())
+		return
+	}
+
+	// Abrir archivo del disco
+	file, err := Utilities.OpenFile(filePath, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error RMGRP: No se pudo abrir el disco: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	// Leer MBR y Superblock
+	var TempMBR Structs.MRB
+	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error RMGRP: No se pudo leer el MBR: %v\n", err)
+		return
+	}
+
+	var partitionIndex int = -1
+	for i, part := range TempMBR.MbrPartitions {
+		if strings.Trim(string(part.ID[:]), "\x00") == Data.GetIDPartition() && part.Status[0] == '1' {
+			partitionIndex = i
+			break
+		}
+	}
+	if partitionIndex == -1 {
+		fmt.Fprintf(buffer, "Error RMGRP: La partición no está montada o no existe.\n")
+		return
+	}
+
+	var tempSuperblock Structs.Superblock
+	sbStart := int64(TempMBR.MbrPartitions[partitionIndex].Start)
+	if err := Utilities.ReadObject(file, &tempSuperblock, sbStart, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error RMGRP: No se pudo leer el Superblock: %v\n", err)
+		return
+	}
+
+	// Buscar /users.txt
+	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
+	if indexInode == -1 {
+		fmt.Fprintf(buffer, "Error RMGRP: No se encontró el archivo /users.txt\n")
+		return
+	}
+
+	var usersInode Structs.Inode
+	inodePos := int64(tempSuperblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &usersInode, inodePos, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error RMGRP: No se pudo leer el Inodo: %v\n", err)
+		return
+	}
+
+	// Leer contenido actual
+	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
+	lines := strings.Split(data, "\n")
+
+	var updatedLines []string
+	groupFound := false
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, ",")
+		if len(fields) == 3 && fields[1] == "G" && fields[2] == name && fields[0] != "0" {
+			fields[0] = "0" // marcar como eliminado
+			groupFound = true
+			updatedLines = append(updatedLines, strings.Join(fields, ","))
+		} else {
+			updatedLines = append(updatedLines, line)
+		}
+	}
+
+	if !groupFound {
+		fmt.Fprintf(buffer, "Error RMGRP: El grupo '%s' no existe o ya fue eliminado.\n", name)
+		return
+	}
+
+	// Guardar el contenido nuevo
+	newData := strings.Join(updatedLines, "\n") + "\n"
+	err = OverwriteFileBlock(&usersInode, indexInode, newData, file, tempSuperblock, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error RMGRP: Al escribir el archivo actualizado: %v\n", err)
+		return
+	}
+
+	fmt.Fprintf(buffer, "Grupo '%s' eliminado exitosamente.\n", name)
+}

@@ -104,6 +104,8 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_mkdir(params, buffer)
 	} else if strings.Contains(command, "mkfile") {
 		fn_mkfile(params, buffer)
+	} else if strings.Contains(command, "rmgrp") {
+		fn_rmgrp(params, buffer)
 	} else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
@@ -632,9 +634,30 @@ func fn_mkfile(input string, buffer io.Writer) {
 	FileSystem.Mkfile(path, p, cont, buffer.(*bytes.Buffer))
 }
 
+//--------------------Función para rmgrp--------------------
+func fn_rmgrp(input string, buffer io.Writer) {
+	fs := flag.NewFlagSet("rmgrp", flag.ExitOnError)
+	name := fs.String("name", "", "Nombre")
+
+	fs.Parse(os.Args[1:])
+	matches := re.FindAllStringSubmatch(input, -1)
+
+	for _, match := range matches {
+		nombreFlag := match[1]
+		valorFlag := strings.ToLower(match[2])
+
+		valorFlag = strings.Trim(valorFlag, "\"")
+
+		switch nombreFlag {
+		case "name":
+			fs.Set(nombreFlag, valorFlag)
+		default:
+			fmt.Fprintf(buffer, "Error: El comando 'RMGRP' incluye parámetros no asociados.\n")
+			return
+		}
+	}
+	User.Rmgrp(*name, buffer.(*bytes.Buffer))
+}
+
 //rmgrp
-//rmusr
 //chgrp
-//mkdir
-//rep
-//mkfile
