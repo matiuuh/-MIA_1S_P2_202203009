@@ -629,6 +629,10 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 		} else if len(fields) == 3 && fields[1] == "G" {
 			// Verificar si el grupo existe
 			if fields[2] == grp {
+				if fields[0] == "0" {
+					fmt.Fprintf(buffer, "Error MKUSR: El grupo '%s' ya fue eliminado y no puede usarse.\n", grp)
+					return
+				}
 				grupoExiste = true
 			}
 		}
