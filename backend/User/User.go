@@ -672,7 +672,6 @@ func Mkusr(user string, pass string, grp string, buffer *bytes.Buffer) {
 func Rmusr(user string, buffer *bytes.Buffer) {
 	fmt.Fprint(buffer, "=============RMUSR=============\n")
 
-	// Verificar que el usuario logueado sea 'root'
 	if Data.GetIDUsuario() != "root" {
 		fmt.Fprintf(buffer, "Error RMUSR: Solo 'root' puede eliminar usuarios.\n")
 		return
@@ -682,7 +681,6 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 	var filePath string
 	var partitionFound bool
 
-	// Buscar la partición donde se ha iniciado sesión
 	for _, Particiones := range mountedPartitions {
 		for _, Particion := range Particiones {
 			if Particion.ID == Data.GetIDPartition() {
@@ -701,7 +699,6 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 		return
 	}
 
-	// Abrir el archivo de la partición
 	file, err := Utilities.OpenFile(filePath, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error RMUSR: No se pudo abrir disco: %v\n", err)
@@ -709,7 +706,6 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 	}
 	defer file.Close()
 
-	// Leer el MBR de la partición
 	var TempMBR Structs.MRB
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
 		fmt.Fprintf(buffer, "Error RMUSR: No se pudo leer el MBR: %v\n", err)
@@ -735,7 +731,6 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 		return
 	}
 
-	// Buscar archivo /users.txt
 	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
 	if indexInode == -1 {
 		fmt.Fprintf(buffer, "Error RMUSR: No se encontró el archivo /users.txt\n")
@@ -749,40 +744,59 @@ func Rmusr(user string, buffer *bytes.Buffer) {
 		return
 	}
 
-	// Leer los datos del archivo /users.txt
 	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
 	lines := strings.Split(data, "\n")
 
-	// Buscar y eliminar al usuario
-	var newData string
+	var updatedLines []string
 	userFound := false
+
 	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
+
 		fields := strings.Split(line, ",")
-		if len(fields) == 5 && fields[1] == "U" && fields[3] == user {
-			// Eliminar la línea correspondiente al usuario
+		if len(fields) == 5 && fields[1] == "U" && fields[3] == user && fields[0] != "0" {
+			fields[0] = "0" // Marcar como eliminado
 			userFound = true
-			fields[0] = "0"  // Cambiar el ID a 0 (usuario eliminado)
-			line = strings.Join(fields, ", ") + "\n" // Modificar la línea con ID = 0
+			updatedLine := strings.Join(fields, ",")
+			updatedLines = append(updatedLines, updatedLine)
+		} else {
+			updatedLines = append(updatedLines, line)
 		}
-		// Conservar el resto de los datos
-		newData += line + "\n"
 	}
 
 	if !userFound {
-		fmt.Fprintf(buffer, "Error RMUSR: El usuario '%s' no existe.\n", user)
+		fmt.Fprintf(buffer, "Error RMUSR: El usuario '%s' no existe o ya fue eliminado.\n", user)
 		return
 	}
 
-	// Escribir el archivo /users.txt actualizado
-	err = AppendToFileBlock(&usersInode, indexInode, newData, file, tempSuperblock, buffer)
+	newData := strings.Join(updatedLines, "\n") + "\n"
+
+	err = OverwriteFileBlock(&usersInode, indexInode, newData, file, tempSuperblock, buffer)
 	if err != nil {
 		fmt.Fprintf(buffer, "Error RMUSR: Al escribir el archivo actualizado: %v\n", err)
 		return
 	}
 
-	// Confirmación de eliminación
 	fmt.Fprintf(buffer, "Usuario '%s' eliminado exitosamente.\n", user)
+}
+
+func OverwriteFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, file *os.File, superblock Structs.Superblock, buffer *bytes.Buffer) error {
+	// Limpiar bloques anteriores
+	//blockSize := binary.Size(Structs.FileBlock{})
+	for i := 0; i < 12; i++ {
+		if inode.IN_Block[i] != -1 {
+			// Limpiar el bitmap
+			pos := int64(superblock.SB_Bm_Block_Start + inode.IN_Block[i])
+			if err := Utilities.WriteObject(file, byte(0), pos, buffer); err != nil {
+				return err
+			}
+			inode.IN_Block[i] = -1
+		}
+	}
+
+	// Usar AppendToFileBlock para volver a escribir desde cero
+	return AppendToFileBlock(inode, inodeIndex, newData, file, superblock, buffer)
 }
