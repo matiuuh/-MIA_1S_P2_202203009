@@ -12,6 +12,7 @@ import (
 	"proyecto1/Utilities"
 	"strings"
 	"proyecto1/User"
+	"strconv"
 )
 
 func Mkfs(id string, type_ string, fs_ string, buffer *bytes.Buffer) {
@@ -976,6 +977,11 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 		}
 	}
 
+	if !tienePermisoEscritura(current, User.Data.GetUID(), User.Data.GetGID()) {
+		fmt.Fprintln(buffer, "Error MKFILE: El usuario no tiene permiso de escritura en la carpeta padre.")
+		return
+	}
+
 	for _, blk := range current.IN_Block {
 		if blk == -1 {
 			continue
@@ -1001,8 +1007,8 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 	}
 
 	var newInode Structs.Inode
-	newInode.IN_Uid = 1
-	newInode.IN_Gid = 1
+	newInode.IN_Uid = int32(User.Data.GetUID())
+	newInode.IN_Gid = int32(User.Data.GetGID())
 	newInode.IN_Size = int32(len(content))
 	copy(newInode.IN_Perm[:], "664")
 	now := time.Now().Format("2006-01-02 15:04:05")
@@ -1042,8 +1048,8 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 
 	fmt.Fprintln(buffer, "Archivo creado exitosamente:", path)
 
-	fmt.Fprintln(buffer, "----------------------------------------------------------------------------")
-	fmt.Fprintf(buffer, "DEBUG: Archivo creado en inodo %d y bloque %d\n", inodeIdx, blockIdx)
+	//fmt.Fprintln(buffer, "----------------------------------------------------------------------------")
+	//fmt.Fprintf(buffer, "DEBUG: Archivo creado en inodo %d y bloque %d\n", inodeIdx, blockIdx)
 
 	var createdInode Structs.Inode
 	Utilities.ReadObject(file, &createdInode, int64(sb.SB_Inode_Start+inodeIdx*int32(binary.Size(Structs.Inode{}))), buffer)
@@ -1053,7 +1059,7 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 	Utilities.ReadObject(file, &createdBlock, int64(sb.SB_Block_Start+blockIdx*int32(binary.Size(Structs.FileBlock{}))), buffer)
 	Structs.PrintFileblock(createdBlock, buffer)
 
-	fmt.Fprintln(buffer, "\n--- DEBUG: FolderBlock del directorio padre ---")
+	//fmt.Fprintln(buffer, "\n--- DEBUG: FolderBlock del directorio padre ---")
 	for _, blk := range current.IN_Block {
 		if blk == -1 {
 			continue
@@ -1175,4 +1181,27 @@ func IsUserLoggedInREPORTE() bool {
 	fmt.Println("DEBUG: Usuario actual:", User.Data.GetIDUsuario())
 	fmt.Println("DEBUG: Partición actual:", User.Data.GetIDPartition())
 	return User.Data.GetIDUsuario() != "" && User.Data.GetIDPartition() != ""
+}
+
+func tienePermisoEscritura(inodo Structs.Inode, uid, gid int) bool {
+	permStr := strings.Trim(string(inodo.IN_Perm[:]), "\x00")
+	if len(permStr) != 3 {
+		return false
+	}
+
+	if uid == 0 {
+		return true // root siempre tiene permiso
+	}
+
+	u, _ := strconv.Atoi(string(permStr[0]))
+	g, _ := strconv.Atoi(string(permStr[1]))
+	o, _ := strconv.Atoi(string(permStr[2]))
+
+	if uid == int(inodo.IN_Uid) {
+		return u&2 != 0
+	} else if gid == int(inodo.IN_Gid) {
+		return g&2 != 0
+	} else {
+		return o&2 != 0
+	}
 }

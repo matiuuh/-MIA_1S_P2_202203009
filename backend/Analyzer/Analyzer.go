@@ -601,6 +601,7 @@ func fn_mkfile(input string, buffer io.Writer) {
 	fmt.Fprintln(buffer, "=========== MKFILE ===========")
 	var path, cont string
 	var p bool
+	var size int = 0
 
 	re := regexp.MustCompile(`-(\w+)=?("[^"]*"|\S*)`)
 	matches := re.FindAllStringSubmatch(input, -1)
@@ -614,6 +615,13 @@ func fn_mkfile(input string, buffer io.Writer) {
 			path = flagValue
 		case "cont":
 			cont = flagValue
+		case "size":
+			val, err := strconv.Atoi(flagValue)
+			if err != nil || val < 0 {
+				fmt.Fprintln(buffer, "Error: el parámetro -size debe ser un número entero no negativo.")
+				return
+			}
+			size = val
 		case "p":
 			if match[2] == "" {
 				p = true
@@ -621,6 +629,14 @@ func fn_mkfile(input string, buffer io.Writer) {
 				fmt.Fprintln(buffer, "Error: el flag -p no debe llevar valor.")
 				return
 			}
+		case "r":
+			if match[2] == "" {
+				p = true
+			} else {
+				fmt.Fprintln(buffer, "Error: el flag -r no debe llevar valor.")
+				return
+			}
+		
 		default:
 			fmt.Fprintf(buffer, "Error: parámetro no reconocido -%s\n", flagName)
 			return
@@ -630,6 +646,23 @@ func fn_mkfile(input string, buffer io.Writer) {
 	if path == "" {
 		fmt.Fprintln(buffer, "Error: el parámetro -path es obligatorio para MKFILE.")
 		return
+	}
+
+	if cont != "" {
+		if _, err := os.Stat(cont); os.IsNotExist(err) {
+			fmt.Fprintf(buffer, "Error: el archivo %s no existe en el sistema local.\n", cont)
+			return
+		}
+		// Aquí podrías cargar el contenido real del archivo si deseas
+		// contentBytes, _ := os.ReadFile(cont)
+		// content = string(contentBytes)
+	} else if size > 0 {
+		// Si no hay -cont, se genera contenido según size
+		var builder strings.Builder
+		for i := 0; i < size; i++ {
+			builder.WriteByte(byte('0' + i%10))
+		}
+		cont = builder.String()
 	}
 
 	// Llama a la función en el FileSystem

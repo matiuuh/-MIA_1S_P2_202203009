@@ -10,12 +10,15 @@ import (
 	"strings"
 	"bytes"
 	"math"
+	"strconv"
 )
 
 // Estructura de partición de usuario
 type PartitionUser struct {
 	IDPartition string
 	IDUsuario   string
+	UID         int
+	GID         int
 }
 
 //----------------geters y seters----------------
@@ -39,6 +42,26 @@ func (Data *PartitionUser) SetIDUsuario(IDUsuario string) {
 	Data.IDUsuario = IDUsuario
 }
 
+// Obtener UID
+func (Data *PartitionUser) GetUID() int {
+	return Data.UID
+}
+
+// Establecer UID
+func (Data *PartitionUser) SetUID(uid int) {
+	Data.UID = uid
+}
+
+// Obtener GID
+func (Data *PartitionUser) GetGID() int {
+	return Data.GID
+}
+
+// Establecer GID
+func (Data *PartitionUser) SetGID(gid int) {
+	Data.GID = gid
+}
+
 var Data PartitionUser
 
 func Login(user string, pass string, id string, buffer *bytes.Buffer) {
@@ -47,7 +70,6 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	fmt.Println("Pass:", pass)
 	fmt.Println("Id:", id)
 
-	// Verificar si el usuario ya está logueado buscando en las particiones montadas
 	mountedPartitions := DiskManagement.GetMountedPartitions()
 	var filepath string
 	var partitionFound bool
@@ -55,11 +77,11 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 
 	for _, partitions := range mountedPartitions {
 		for _, Partition := range partitions {
-			if Partition.ID == id && Partition.LoggedIn { // Verifica si ya está logueado
+			if Partition.ID == id && Partition.LoggedIn {
 				fmt.Fprintf(buffer, "Error LOGIN: Ya existe un usuario logueado en la partición:%s\n", id)
 				return
 			}
-			if Partition.ID == id { // Encuentra la partición correcta
+			if Partition.ID == id {
 				filepath = Partition.Path
 				partitionFound = true
 				break
@@ -75,7 +97,6 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 		return
 	}
 
-	// Abrir archivo binario
 	file, err := Utilities.OpenFile(filepath, buffer)
 	if err != nil {
 		fmt.Println("Error: No se pudo abrir el archivo:", err)
@@ -84,18 +105,12 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	defer file.Close()
 
 	var TempMBR Structs.MRB
-	// Leer el MBR desde el archivo binario
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
 		fmt.Println("Error: No se pudo leer el MBR:", err)
 		return
 	}
 
-	// Imprimir el MBR
-	Structs.PrintMBR(TempMBR)
-	fmt.Println("-------------")
-
 	var index int = -1
-	// Iterar sobre las particiones del MBR para encontrar la correcta
 	for i := 0; i < 4; i++ {
 		if TempMBR.MbrPartitions[i].Size != 0 {
 			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
@@ -112,62 +127,60 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	}
 
 	if index == -1 {
-		fmt.Fprintf(buffer, "Error en LOGIN: no se encontro nunguna particion con el ID %s\n", id)
+		fmt.Fprintf(buffer, "Error en LOGIN: no se encontró ninguna partición con el ID %s\n", id)
 		return
-		}
+	}
 
 	var tempSuperblock Structs.Superblock
-	// Leer el Superblock desde el archivo binario
 	if err := Utilities.ReadObject(file, &tempSuperblock, int64(TempMBR.MbrPartitions[index].Start), buffer); err != nil {
 		fmt.Println("Error: No se pudo leer el Superblock:", err)
 		return
 	}
 
-	// Buscar el archivo de usuarios /users.txt -> retorna índice del Inodo
 	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
-
-	var crrInode Structs.Inode
-	// Leer el Inodo desde el archivo binario
-	if err := Utilities.ReadObject(file, &crrInode, int64(tempSuperblock.SB_Inode_Start+indexInode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
-		fmt.Println("Error: No se pudo leer el Inodo:", err)
-		fmt.Fprintf(buffer, "Error: No se pudo leer el Inodo:", err, " asegurese de haber ejecutado mkfs correctamente\n")
+	if indexInode == -1 {
+		fmt.Fprintln(buffer, "Error: No se encontró /users.txt, asegúrese de haber ejecutado mkfs.")
 		return
 	}
 
-	// Leer datos del archivo
-	data := GetInodeFileData(crrInode, file, tempSuperblock, buffer)
+	var crrInode Structs.Inode
+	if err := Utilities.ReadObject(file, &crrInode, int64(tempSuperblock.SB_Inode_Start+indexInode*int32(binary.Size(Structs.Inode{}))), buffer); err != nil {
+		fmt.Fprintf(buffer, "Error: No se pudo leer el Inodo: %v\n", err)
+		return
+	}
 
-	// Dividir la cadena en líneas
+	data := GetInodeFileData(crrInode, file, tempSuperblock, buffer)
 	lines := strings.Split(data, "\n")
 
-	// Iterar a través de las líneas para verificar las credenciales
+	var uidEncontrado, gidEncontrado int
+
 	for _, line := range lines {
 		words := strings.Split(line, ",")
-
 		if len(words) == 5 {
-			if (strings.Contains(words[3], user)) && (strings.Contains(words[4], pass)) {
+			if words[3] == user && words[4] == pass {
 				login = true
+				uidEncontrado, _ = strconv.Atoi(words[0])          // UID del usuario
+				gidEncontrado = obtenerIDGrupo(words[2], lines)    // GID según nombre grupo
 				break
 			}
 		}
 	}
 
-	// Imprimir información del Inodo
-	fmt.Println("Inode", crrInode.IN_Block)
-
-	// Si las credenciales son correctas y marcamos como logueado
 	if login {
 		fmt.Fprintf(buffer, "Usuario logueado con éxito en la partición:%s\n", id)
-		fmt.Println("Usuario logueado con exito")
-		DiskManagement.MarkPartitionAsLoggedIn(id) // Marcar la partición como logueada
+		fmt.Println("Usuario logueado con éxito")
+		DiskManagement.MarkPartitionAsLoggedIn(id)
+		Data.SetIDPartition(id)
+		Data.SetIDUsuario(user)
+		Data.SetUID(uidEncontrado)
+		Data.SetGID(gidEncontrado)
+	} else {
+		fmt.Fprintf(buffer, "Error LOGIN: Credenciales incorrectas o usuario no encontrado.\n")
 	}
-
-	// Establecer la partición y el usuario en la estructura de usuario
-	Data.SetIDPartition(id)
-	Data.SetIDUsuario(user)
 
 	fmt.Println("======End LOGIN======")
 }
+
 
 func InitSearch(path string, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) int32 {
 	fmt.Println("======Start BUSQUEDA INICIAL ======")
@@ -806,7 +819,6 @@ func OverwriteFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, 
 }
 
 //--------------------RMGRP--------------------
-//--------------------RMGRP--------------------
 func Rmgrp(name string, buffer *bytes.Buffer) {
 	fmt.Fprint(buffer, "=============RMGRP=============\n")
 
@@ -1051,4 +1063,15 @@ func Chgrp(user string, newGroup string, buffer *bytes.Buffer) {
 	}
 
 	fmt.Fprintf(buffer, "Grupo del usuario '%s' actualizado exitosamente a '%s'.\n", user, newGroup)
+}
+
+func obtenerIDGrupo(nombreGrupo string, lines []string) int {
+	for _, line := range lines {
+		parts := strings.Split(line, ",")
+		if len(parts) == 3 && parts[1] == "G" && parts[2] == nombreGrupo {
+			id, _ := strconv.Atoi(parts[0])
+			return id
+		}
+	}
+	return -1
 }
