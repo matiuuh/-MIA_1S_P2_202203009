@@ -106,7 +106,9 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_mkfile(params, buffer)
 	} else if strings.Contains(command, "rmgrp") {
 		fn_rmgrp(params, buffer)
-	} else {
+	} else if strings.Contains(command, "chgrp") {
+		fn_chgrp(params, buffer)
+	}else {
 		fmt.Println("Error: Commando invalido o no encontrado")
 	}
 
@@ -659,5 +661,33 @@ func fn_rmgrp(input string, buffer io.Writer) {
 	User.Rmgrp(*name, buffer.(*bytes.Buffer))
 }
 
-//rmgrp
-//chgrp
+func fn_chgrp(params string, buffer io.Writer) {
+	// Convertir buffer a *bytes.Buffer para pasar al método del paquete User
+	buff := buffer.(*bytes.Buffer)
+
+	// Inicializar variables
+	var user string
+	var group string
+
+	// Separar los parámetros por espacios
+	paramList := strings.Fields(params)
+
+	for _, param := range paramList {
+		param = strings.ToLower(param)
+
+		if strings.HasPrefix(param, "-user=") {
+			user = strings.TrimPrefix(param, "-user=")
+		} else if strings.HasPrefix(param, "-grp=") {
+			group = strings.TrimPrefix(param, "-grp=")
+		}
+	}
+
+	// Validar que ambos parámetros hayan sido proporcionados
+	if user == "" || group == "" {
+		fmt.Fprint(buff, "Error CHGRP: Faltan parámetros obligatorios (-user y -grp).\n")
+		return
+	}
+
+	// Llamar al método que realiza la lógica
+	User.Chgrp(user, group, buff)
+}

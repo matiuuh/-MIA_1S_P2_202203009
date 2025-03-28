@@ -922,3 +922,133 @@ func Rmgrp(name string, buffer *bytes.Buffer) {
 
 	fmt.Fprintf(buffer, "Grupo '%s' eliminado exitosamente.\n", name)
 }
+
+//--------------------CHGRP--------------------
+func Chgrp(user string, newGroup string, buffer *bytes.Buffer) {
+	fmt.Fprint(buffer, "=============CHGRP=============\n")
+
+	// Validar que solo 'root' puede ejecutar el comando
+	if Data.GetIDUsuario() != "root" {
+		fmt.Fprintf(buffer, "Error CHGRP: Solo el usuario 'root' puede cambiar grupos.\n")
+		return
+	}
+
+	// Buscar la partición activa
+	mountedPartitions := DiskManagement.GetMountedPartitions()
+	var filePath string
+	var partitionFound bool
+
+	for _, Particiones := range mountedPartitions {
+		for _, Particion := range Particiones {
+			if Particion.ID == Data.GetIDPartition() {
+				filePath = Particion.Path
+				partitionFound = true
+				break
+			}
+		}
+		if partitionFound {
+			break
+		}
+	}
+
+	if !partitionFound {
+		fmt.Fprintf(buffer, "Error CHGRP: No se encontró partición montada con ID: %s\n", Data.GetIDPartition())
+		return
+	}
+
+	// Abrir el archivo
+	file, err := Utilities.OpenFile(filePath, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error CHGRP: No se pudo abrir el archivo: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	// Leer MBR y superblock
+	var TempMBR Structs.MRB
+	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error CHGRP: No se pudo leer el MBR: %v\n", err)
+		return
+	}
+
+	var partitionIndex int = -1
+	for i, part := range TempMBR.MbrPartitions {
+		if strings.Trim(string(part.ID[:]), "\x00") == Data.GetIDPartition() && part.Status[0] == '1' {
+			partitionIndex = i
+			break
+		}
+	}
+	if partitionIndex == -1 {
+		fmt.Fprintf(buffer, "Error CHGRP: La partición no está montada o no existe.\n")
+		return
+	}
+
+	var tempSuperblock Structs.Superblock
+	sbStart := int64(TempMBR.MbrPartitions[partitionIndex].Start)
+	if err := Utilities.ReadObject(file, &tempSuperblock, sbStart, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error CHGRP: No se pudo leer el Superblock: %v\n", err)
+		return
+	}
+
+	// Buscar users.txt
+	indexInode := InitSearch("/users.txt", file, tempSuperblock, buffer)
+	if indexInode == -1 {
+		fmt.Fprintf(buffer, "Error CHGRP: No se encontró el archivo /users.txt\n")
+		return
+	}
+
+	var usersInode Structs.Inode
+	inodePos := int64(tempSuperblock.SB_Inode_Start + indexInode*int32(binary.Size(Structs.Inode{})))
+	if err := Utilities.ReadObject(file, &usersInode, inodePos, buffer); err != nil {
+		fmt.Fprintf(buffer, "Error CHGRP: No se pudo leer el inodo de users.txt: %v\n", err)
+		return
+	}
+
+	data := GetInodeFileData(usersInode, file, tempSuperblock, buffer)
+	lines := strings.Split(data, "\n")
+
+	var updatedLines []string
+	var userFound, groupExists bool
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		fields := strings.Split(line, ",")
+
+		// Verificar si el grupo existe (ID != 0)
+		if len(fields) == 3 && fields[1] == "G" && fields[2] == newGroup && fields[0] != "0" {
+			groupExists = true
+		}
+
+		// Buscar al usuario y cambiar su grupo
+		if len(fields) == 5 && fields[1] == "U" && fields[3] == user && fields[0] != "0" {
+			userFound = true
+			fields[2] = newGroup // Cambiar grupo
+			line = strings.Join(fields, ",")
+		}
+
+		updatedLines = append(updatedLines, line)
+	}
+
+	if !groupExists {
+		fmt.Fprintf(buffer, "Error CHGRP: El grupo '%s' no existe o está eliminado.\n", newGroup)
+		return
+	}
+
+	if !userFound {
+		fmt.Fprintf(buffer, "Error CHGRP: El usuario '%s' no existe o está eliminado.\n", user)
+		return
+	}
+
+	newData := strings.Join(updatedLines, "\n") + "\n"
+	err = OverwriteFileBlock(&usersInode, indexInode, newData, file, tempSuperblock, buffer)
+	if err != nil {
+		fmt.Fprintf(buffer, "Error CHGRP: No se pudo actualizar el archivo: %v\n", err)
+		return
+	}
+
+	fmt.Fprintf(buffer, "Grupo del usuario '%s' actualizado exitosamente a '%s'.\n", user, newGroup)
+}
