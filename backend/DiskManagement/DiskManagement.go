@@ -63,6 +63,14 @@ func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer
 	fmt.Println("Unit:", unit)
 	fmt.Println("Path:", path)
 
+	if unit == "" {
+		unit = "m"
+	}
+
+	if fit == "" {
+		fit = "ff"
+	}	
+
 	// Validar fit bf/ff/wf
 	if fit != "bf" && fit != "wf" && fit != "ff" {
 		fmt.Fprintf(buffer, "Error: Fit debe ser bf, wf or ff\n")
