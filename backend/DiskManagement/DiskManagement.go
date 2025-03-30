@@ -159,7 +159,7 @@ func Mkdisk(size int, fit string, unit string, path string, buffer *bytes.Buffer
 
 	// Cerrar el archivo
 	defer file.Close()
-
+	fmt.Fprintf(buffer, "Dico creado con exito en la ruta: %s con el tamaño: %d.\n", path, size)
 	fmt.Fprintf(buffer, "======FIN MKDISK======")
 }
 
@@ -402,6 +402,7 @@ func Fdisk(size int, path string, name string, unit string, type_ string, fit st
 func Mount(path string, name string, buffer *bytes.Buffer) {
 	fmt.Fprintf(buffer, "=========MOUNT=========\n")
 	fmt.Print(path)
+
 	// Validar la ruta (path)
 	if path == "" {
 		fmt.Fprintf(buffer, "Error MOUNT: La ruta del disco es obligatoria.\n")
@@ -412,23 +413,25 @@ func Mount(path string, name string, buffer *bytes.Buffer) {
 		fmt.Fprintf(buffer, "Error MOUNT: El nombre de la partición es obligatorio.\n")
 		return
 	}
+
 	// Abrir archivo binario
 	file, err := Utilities.OpenFile(path, buffer)
 	if err != nil {
 		return
 	}
+	defer file.Close()
+
 	var TempMBR Structs.MRB
 	if err := Utilities.ReadObject(file, &TempMBR, 0, buffer); err != nil {
 		return
 	}
 
 	var ParticionExiste = false
-	var Particion Structs.Partition
 	var IndiceParticion int
-
 	NameBytes := [16]byte{}
 	copy(NameBytes[:], []byte(name))
 
+	// Rechazar partición extendida
 	for i := 0; i < 4; i++ {
 		if TempMBR.MbrPartitions[i].Type[0] == 'e' && bytes.Equal(TempMBR.MbrPartitions[i].Name[:], NameBytes[:]) {
 			fmt.Fprintf(buffer, "Error MOUNT: No se puede montar una partición extendida.\n")
@@ -436,9 +439,13 @@ func Mount(path string, name string, buffer *bytes.Buffer) {
 		}
 	}
 
+	// Buscar partición primaria con ese nombre
 	for i := 0; i < 4; i++ {
 		if TempMBR.MbrPartitions[i].Type[0] == 'p' && bytes.Equal(TempMBR.MbrPartitions[i].Name[:], NameBytes[:]) {
-			Particion = TempMBR.MbrPartitions[i]
+			if TempMBR.MbrPartitions[i].Status[0] == '1' {
+				fmt.Fprintf(buffer, "Error MOUNT: La partición ya está montada.\n")
+				return
+			}
 			IndiceParticion = i
 			ParticionExiste = true
 			break
@@ -450,12 +457,17 @@ func Mount(path string, name string, buffer *bytes.Buffer) {
 		return
 	}
 
-	if Particion.Status[0] == '1' {
-		fmt.Fprintf(buffer, "Error MOUNT: La partición ya está montada.\n")
-		return
+	// Generar ID
+	DiscoID := GeneratorDiscID(path)
+	
+	// Verificar si ya está montada en memoria
+	for _, p := range MountedPartitions[DiscoID] {
+		if p.Name == name {
+			fmt.Fprintf(buffer, "Error MOUNT: La partición ya está montada.\n")
+			return
+		}
 	}
 
-	DiscoID := GeneratorDiscID(path)
 	MountedPartitionsOnDisc := MountedPartitions[DiscoID]
 	var Letra byte
 
@@ -475,31 +487,29 @@ func Mount(path string, name string, buffer *bytes.Buffer) {
 	UltimosDigitos := carnet[len(carnet)-2:]
 	IDParticion := fmt.Sprintf("%s%d%c", UltimosDigitos, IndiceParticion+1, Letra)
 
-	Particion.Status[0] = '1'
-	copy(Particion.ID[:], IDParticion)
-	TempMBR.MbrPartitions[IndiceParticion] = Particion
+	// Guardar partición en memoria RAM
 	MountedPartitions[DiscoID] = append(MountedPartitions[DiscoID], MountedPartition{
 		Path:   path,
-		Name: name,
+		Name:   name,
 		ID:     IDParticion,
 		Status: '1',
 	})
+
 	fmt.Fprintf(buffer, "Partición montada con éxito en la ruta: %s con el nombre: %s y ID: %s.\n", path, name, IDParticion)
 
-	if err := Utilities.WriteObject(file, TempMBR, 0, buffer); err != nil {
-		return
-	}
 	fmt.Println("---------------------------------------------")
 	PrintMountedPartitions(path, buffer)
 	fmt.Println("---------------------------------------------")
+
+	// Solo imprimir el MBR, no modificarlo
 	var TempMRB Structs.MRB
 	if err := Utilities.ReadObject(file, &TempMRB, 0, buffer); err != nil {
 		return
 	}
 	Structs.PrintMBR(TempMRB)
 	fmt.Println("---------------------------------------------")
-	defer file.Close()
 }
+
 
 func List(buffer *bytes.Buffer) {
 	fmt.Fprintf(buffer, "LIST---------------------------------------------------------------------\n")
