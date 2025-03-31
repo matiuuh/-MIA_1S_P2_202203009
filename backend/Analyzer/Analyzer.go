@@ -92,8 +92,6 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 		fn_cat(params, buffer)
 	} else if strings.Contains(command, "mkgrp") {
 		fn_mkgrp(params, buffer)
-	} else if strings.Contains(command, "list") {
-		fn_list(params, buffer)
 	} else if strings.Contains(command, "mkusr") {
 		fn_mkusr(params, buffer)
 	} else if strings.Contains(command, "rmusr") {
@@ -447,16 +445,6 @@ func fn_mkgrp(input string, buffer io.Writer) {
 		}
 	}
 	User.Mkgrp(*nombre, buffer.(*bytes.Buffer))
-}
-
-//--------------------Función para comando_list--------------------
-func fn_list(input string, buffer io.Writer) {
-	input = strings.TrimSpace(input)
-	if len(input) > 0 {
-		fmt.Fprintf(buffer, "Error: El comando 'LIST' incluye parámetros no asociados.\n")
-		return
-	}
-	DiskManagement.List(buffer.(*bytes.Buffer))
 }
 
 //--------------------Función para comando_mounted--------------------

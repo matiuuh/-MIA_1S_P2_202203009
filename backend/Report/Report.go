@@ -1009,14 +1009,14 @@ func generarArbolInodos(index int32, sb *Structs.Superblock, file *os.File, dot 
 		return
 	}
 
-	// Crear nodo del inodo con estilo tabla
-	dot.WriteString(fmt.Sprintf("inode%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0' BGCOLOR='lightblue'>\n", index))
-	dot.WriteString(fmt.Sprintf("<TR><TD COLSPAN='2'>Inodo %d</TD></TR>\n", index))
-	dot.WriteString(fmt.Sprintf("<TR><TD>UID</TD><TD>%d</TD></TR>\n", inode.IN_Uid))
-	dot.WriteString(fmt.Sprintf("<TR><TD>GID</TD><TD>%d</TD></TR>\n", inode.IN_Gid))
-	dot.WriteString(fmt.Sprintf("<TR><TD>Size</TD><TD>%d</TD></TR>\n", inode.IN_Size))
-	dot.WriteString(fmt.Sprintf("<TR><TD>Perm</TD><TD>%s</TD></TR>\n", string(inode.IN_Perm[:])))
-	dot.WriteString("</TABLE>> shape=plaintext];\n")
+	// Construir tabla tipo HTML para el inodo
+	dot.WriteString(fmt.Sprintf("inode%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0'>\n", index))
+	dot.WriteString("<TR><TD COLSPAN='2'><B>Inodo " + fmt.Sprint(index) + "</B></TD></TR>\n")
+	dot.WriteString("<TR><TD>Type</TD><TD>0</TD></TR>\n")
+	dot.WriteString("<TR><TD>ap0</TD><TD>" + fmt.Sprint(inode.IN_Block[0]) + "</TD></TR>\n")
+	dot.WriteString("<TR><TD>ap1</TD><TD>" + fmt.Sprint(inode.IN_Block[1]) + "</TD></TR>\n")
+	dot.WriteString("<TR><TD>ap2</TD><TD>" + fmt.Sprint(inode.IN_Block[2]) + "</TD></TR>\n")
+	dot.WriteString("</TABLE>> shape=plain];\n")
 
 	for i, block := range inode.IN_Block {
 		if block == -1 {
@@ -1026,9 +1026,7 @@ func generarArbolInodos(index int32, sb *Structs.Superblock, file *os.File, dot 
 		dot.WriteString(fmt.Sprintf("inode%d -> block%d_%d;\n", index, index, i))
 
 		if i < 12 {
-			// Bloques directos
 			if string(inode.IN_Type[:]) == "0" || string(inode.IN_Type[:]) == "" {
-				// Carpeta
 				var folder Structs.FolderBlock
 				blockOffset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.FolderBlock{})))
 				if err := Utilities.ReadObject(file, &folder, blockOffset, buffer); err != nil {
@@ -1036,25 +1034,24 @@ func generarArbolInodos(index int32, sb *Structs.Superblock, file *os.File, dot 
 					continue
 				}
 
-				dot.WriteString(fmt.Sprintf("block%d_%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0' BGCOLOR='salmon'>\n", index, i))
-				dot.WriteString(fmt.Sprintf("<TR><TD COLSPAN='2'>FolderBlock %d</TD></TR>\n", block))
+				dot.WriteString(fmt.Sprintf("block%d_%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0'>\n", index, i))
+				dot.WriteString("<TR><TD COLSPAN='2'><B>FolderBlock " + fmt.Sprint(block) + "</B></TD></TR>\n")
 				for _, content := range folder.B_Content {
 					name := strings.Trim(string(content.B_Name[:]), "\x00")
-					if name != "" && content.B_Inode != -1 {
-						dot.WriteString(fmt.Sprintf("<TR><TD>%s</TD><TD>%d</TD></TR>\n", name, content.B_Inode))
+					if name != "" {
+						dot.WriteString("<TR><TD>" + name + "</TD><TD>" + fmt.Sprint(content.B_Inode) + "</TD></TR>\n")
 					}
 				}
-				dot.WriteString("</TABLE>> shape=plaintext];\n")
+				dot.WriteString("</TABLE>> shape=plain fillcolor=salmon style=filled];\n")
 
-				// Recursividad para carpetas
 				for _, content := range folder.B_Content {
 					name := strings.Trim(string(content.B_Name[:]), "\x00")
 					if name != "" && content.B_Inode != -1 && name != "." && name != ".." {
 						generarArbolInodos(content.B_Inode, sb, file, dot, buffer)
 					}
 				}
+
 			} else {
-				// Archivo
 				var fileblock Structs.FileBlock
 				blockOffset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.FileBlock{})))
 				if err := Utilities.ReadObject(file, &fileblock, blockOffset, buffer); err != nil {
@@ -1062,67 +1059,27 @@ func generarArbolInodos(index int32, sb *Structs.Superblock, file *os.File, dot 
 					continue
 				}
 				contenido := sanitizeDOTContent(strings.TrimRight(string(fileblock.B_Content[:]), "\x00"))
-				dot.WriteString(fmt.Sprintf("block%d_%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0' BGCOLOR='khaki'>\n", index, i))
-				dot.WriteString(fmt.Sprintf("<TR><TD>FileBlock %d</TD></TR>\n", block))
-				dot.WriteString(fmt.Sprintf("<TR><TD>%s</TD></TR>\n", contenido))
-				dot.WriteString("</TABLE>> shape=plaintext];\n")
+				dot.WriteString(fmt.Sprintf("block%d_%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0'>\n<TR><TD><B>FileBlock %d</B></TD></TR><TR><TD>%s</TD></TR></TABLE>> shape=plain fillcolor=khaki style=filled];\n", index, i, block, contenido))
 			}
 		} else {
-			// PointerBlock como tabla
 			var pointerBlock Structs.PointerBlock
 			blockOffset := int64(sb.SB_Block_Start + block*int32(binary.Size(Structs.PointerBlock{})))
 			if err := Utilities.ReadObject(file, &pointerBlock, blockOffset, buffer); err != nil {
 				fmt.Fprintf(buffer, "Error al leer PointerBlock %d: %v\n", block, err)
 				continue
 			}
-			dot.WriteString(fmt.Sprintf("block%d_%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0' BGCOLOR='lightgray'>\n", index, i))
-			dot.WriteString(fmt.Sprintf("<TR><TD COLSPAN='1'>PointerBlock %d</TD></TR>\n", block))
-			for _, ptr := range pointerBlock.B_Pointers {
+
+			dot.WriteString(fmt.Sprintf("block%d_%d [label=<\n<TABLE BORDER='1' CELLBORDER='1' CELLSPACING='0'>\n<TR><TD COLSPAN='2'><B>PointerBlock %d</B></TD></TR>\n", index, i, block))
+			for j, ptr := range pointerBlock.B_Pointers {
 				if ptr != -1 {
-					dot.WriteString(fmt.Sprintf("<TR><TD>%d</TD></TR>\n", ptr))
+					dot.WriteString("<TR><TD>ptr" + fmt.Sprint(j) + "</TD><TD>" + fmt.Sprint(ptr) + "</TD></TR>\n")
 				}
 			}
-			dot.WriteString("</TABLE>> shape=plaintext];\n")
+			dot.WriteString("</TABLE>> shape=plain fillcolor=gray style=filled];\n")
 
 			for _, ptr := range pointerBlock.B_Pointers {
 				if ptr != -1 {
-					if i == 12 {
-						generarArbolInodos(ptr, sb, file, dot, buffer)
-					} else if i == 13 {
-						var innerPointerBlock Structs.PointerBlock
-						innerOffset := int64(sb.SB_Block_Start + ptr*int32(binary.Size(Structs.PointerBlock{})))
-						if err := Utilities.ReadObject(file, &innerPointerBlock, innerOffset, buffer); err != nil {
-							fmt.Fprintf(buffer, "Error al leer InnerPointerBlock %d: %v\n", ptr, err)
-							continue
-						}
-						for _, innerPtr := range innerPointerBlock.B_Pointers {
-							if innerPtr != -1 {
-								generarArbolInodos(innerPtr, sb, file, dot, buffer)
-							}
-						}
-					} else if i == 14 {
-						var outerPointerBlock Structs.PointerBlock
-						outerOffset := int64(sb.SB_Block_Start + ptr*int32(binary.Size(Structs.PointerBlock{})))
-						if err := Utilities.ReadObject(file, &outerPointerBlock, outerOffset, buffer); err != nil {
-							fmt.Fprintf(buffer, "Error al leer OuterPointerBlock %d: %v\n", ptr, err)
-							continue
-						}
-						for _, midPtr := range outerPointerBlock.B_Pointers {
-							if midPtr != -1 {
-								var midPointerBlock Structs.PointerBlock
-								midOffset := int64(sb.SB_Block_Start + midPtr*int32(binary.Size(Structs.PointerBlock{})))
-								if err := Utilities.ReadObject(file, &midPointerBlock, midOffset, buffer); err != nil {
-									fmt.Fprintf(buffer, "Error al leer MidPointerBlock %d: %v\n", midPtr, err)
-									continue
-								}
-								for _, finalPtr := range midPointerBlock.B_Pointers {
-									if finalPtr != -1 {
-										generarArbolInodos(finalPtr, sb, file, dot, buffer)
-									}
-								}
-							}
-						}
-					}
+					generarArbolInodos(ptr, sb, file, dot, buffer)
 				}
 			}
 		}
@@ -1290,7 +1247,6 @@ func ReporteLS(id string, path string, buffer *bytes.Buffer, pathFileLs string) 
 
 	fmt.Fprintf(buffer, "Reporte LS generado exitosamente en: %s\n", path)
 }
-
 
 func ReporteFile(id string, outputPath string, buffer *bytes.Buffer, filePathLs string) {
 	fmt.Fprintln(buffer, "=========== REPORTE FILE ===========")
