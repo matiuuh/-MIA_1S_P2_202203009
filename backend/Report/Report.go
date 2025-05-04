@@ -39,7 +39,7 @@ func Rep(name string, path string, id string, path_file_ls string, buffer *bytes
 		ReporteInode(id, path, buffer)
 	} else if name == "bm_inode" {
 		Reporte_BitmapInode(id, path, buffer)
-	} else if name == "bm_bloc" {
+	} else if name == "bm_block" {
 		Reporte_BitmapBlock(id, path, buffer)
 	} else if name == "block" {
 		ReportBloc(id, path, buffer)
