@@ -63,6 +63,7 @@ func Analyze(entrada string) string {
 		fmt.Println("Comando: ", command, " - ", "Parametro: ", params)
 
 		AnalyzeCommnad(command, params, &buffer)
+		buffer.WriteString("\n") // ← Este es el que faltaba
 
 		//mkdisk -size=3000 -unit=K -fit=BF -path="/home/bang/Disks/disk1.bin"
 	}
@@ -107,7 +108,7 @@ func AnalyzeCommnad(command string, params string, buffer io.Writer) {
 	} else if strings.Contains(command, "chgrp") {
 		fn_chgrp(params, buffer)
 	}else {
-		fmt.Println("Error: Commando invalido o no encontrado")
+		fmt.Fprintf(buffer, "Error: Commando invalido o no encontrado")
 	}
 
 }
@@ -141,6 +142,10 @@ func fn_mkdisk(params string, buffer io.Writer) {
 			fmt.Fprintf(buffer, "Error: Flag not found")
 			return
 		}
+	}
+
+	if *unit == "" {
+		*unit = "k"
 	}
 
 	// Validaciones
@@ -185,7 +190,7 @@ func fn_rmdisk(params string, buffer io.Writer) {
 		case "path":
 			fs.Set(nombreFlag, valorFlag)
 		default:
-			fmt.Println(buffer, "Error: comando 'rmdsik' inclyte parametros no asociados\n")
+			fmt.Fprintf(buffer, "Error: comando 'rmdsik' inclyte parametros no asociados\n")
 			return
 		}
 	}
@@ -229,12 +234,12 @@ func fn_fdisk(input string, buffer io.Writer) {
 
 	// Validaciones
 	if *size <= 0 {
-		fmt.Println("Error: Size must be greater than 0")
+		fmt.Fprintf(buffer, "Error: Size must be greater than 0")
 		return
 	}
 
 	if *path == "" {
-		fmt.Println("Error: Path is required")
+		fmt.Fprintf(buffer, "Error: Path is required")
 		return
 	}
 
@@ -243,19 +248,37 @@ func fn_fdisk(input string, buffer io.Writer) {
 		*fit = "w"
 	}
 
-		// Validar fit (b/w/f)
+	if *fit == "bf" {
+		*fit = "b"
+	}
+
+	if *fit == "wf" {
+		*fit = "w"
+	}
+
+	if *fit == "ff" {
+		*fit = "f"
+	}
+
+	if *unit == "" {
+		*unit = "k"
+	}
+
+	fmt.Fprintf(buffer, "EL FIT ES : %s\n", *fit)
+
+	// Validar fit (b/w/f)
 	if *fit != "b" && *fit != "f" && *fit != "w" {
-		fmt.Println("Error: Fit must be 'b', 'f', or 'w'")
+		fmt.Fprintf(buffer, "Error: Fit must be 'b', 'f', or 'w'")
 		return
 	}
 
-	if *unit != "k" && *unit != "m" {
-		fmt.Println("Error: Unit must be 'k' or 'm'")
+	if *unit != "k" && *unit != "m" && *unit != "b" {
+		fmt.Fprintf(buffer, "Error: Unit must be 'k' or 'm' or 'b'")
 		return
 	}
 
 	if *type_ != "p" && *type_ != "e" && *type_ != "l" {
-		fmt.Println("Error: Type must be 'p', 'e', or 'l'")
+		fmt.Fprintf(buffer, "Error: Type must be 'p', 'e', or 'l'")
 		return
 	}
 
@@ -273,9 +296,11 @@ func fn_fdisk(input string, buffer io.Writer) {
 		return
 	}
 
+	fmt.Println("MBR después de FDISK:")
 	// Llamar a la función
 	DiskManagement.Fdisk(*size, *path, *name, *unit, *type_, *fit, buffer.(*bytes.Buffer))
-	Structs.PrintMBRP(mbr)
+	//Structs.PrintMBRP(mbr)
+	fmt.Println("=============DESPUES DE FDISK===================\n")
 }
 
 //--------------------Función para mount--------------------
@@ -324,19 +349,18 @@ func fn_mkfs(input string, buffer io.Writer) {
 		case "id", "type", "fs":
 			fs.Set(flagName, flagValue)
 		default:
-			fmt.Println("Error: Flag not found")
+			fmt.Fprintf(buffer, "Error: Flag not found")
 		}
 	}
 
 	// Verifica que se hayan establecido todas las flags necesarias
 	if *id == "" {
-		fmt.Println("Error: id es un parámetro obligatorio.")
+		fmt.Fprintf(buffer, "Error: id es un parámetro obligatorio.")
 		return
 	}
 
 	if *type_ == "" { //2fs 3fs
-		fmt.Println("Error: type es un parámetro obligatorio.")
-		return
+		*type_ = "full"
 	}
 
 	// Llamar a la función
@@ -363,7 +387,7 @@ func fn_login(input string, buffer io.Writer) {
 		case "user", "pass", "id":
 			fs.Set(flagName, flagValue)
 		default:
-			fmt.Println("Error: Flag not found")
+			fmt.Fprintf(buffer, "Error: Flag not found")
 		}
 	}
 
@@ -554,7 +578,7 @@ func fn_rep(input string, buffer io.Writer) {
 
 //--------------------Función para mkdir--------------------
 func fn_mkdir(input string, buffer io.Writer) {
-	fmt.Fprintf(buffer, "DEBUG: Entrando a fn_mkdir con input: %s\n", input)
+	//fmt.Fprintf(buffer, "DEBUG: Entrando a fn_mkdir con input: %s\n", input)
 	var path string
 	var p bool = false
 
@@ -572,21 +596,21 @@ func fn_mkdir(input string, buffer io.Writer) {
 		}
 	}
 
-	fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
+	//fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
 
 	if path == "" {
 		fmt.Fprintf(buffer, "Error: MKDIR requiere parámetro obligatorio -path.\n")
 		return
 	}
 		
-		fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
+		//fmt.Fprintf(buffer, "DEBUG: flag -p = %v\n", p)
 
 		// Llamar a la función final
 		FileSystem.Mkdir(path, p, buffer.(*bytes.Buffer))
 }
 
 func fn_mkfile(input string, buffer io.Writer) {
-	fmt.Fprintln(buffer, "=========== MKFILE ===========")
+	fmt.Fprintf(buffer, "=========== MKFILE ===========")
 	var path, cont string
 	var p bool
 	var size int = 0
@@ -596,17 +620,19 @@ func fn_mkfile(input string, buffer io.Writer) {
 
 	for _, match := range matches {
 		flagName := strings.ToLower(match[1])
-		flagValue := strings.Trim(match[2], "\"")
+		originalValue := match[2]                  // <-- Conserva el original
+		flagValue := strings.Trim(match[2], "\"")  // <-- El que usarás
 
 		switch flagName {
 		case "path":
-			path = flagValue
+			// Usa el valor original, no lo bajes a minúscula
+			path = strings.Trim(originalValue, "\"")
 		case "cont":
-			cont = flagValue
+			cont = strings.Trim(originalValue, "\"")
 		case "size":
 			val, err := strconv.Atoi(flagValue)
 			if err != nil || val < 0 {
-				fmt.Fprintln(buffer, "Error: el parámetro -size debe ser un número entero no negativo.")
+				fmt.Fprintf(buffer, "Error: el parámetro -size debe ser un número entero no negativo.\n")
 				return
 			}
 			size = val
@@ -614,14 +640,14 @@ func fn_mkfile(input string, buffer io.Writer) {
 			if match[2] == "" {
 				p = true
 			} else {
-				fmt.Fprintln(buffer, "Error: el flag -p no debe llevar valor.")
+				fmt.Fprintf(buffer, "Error: el flag -p no debe llevar valor.\n")
 				return
 			}
 		case "r":
 			if match[2] == "" {
 				p = true
 			} else {
-				fmt.Fprintln(buffer, "Error: el flag -r no debe llevar valor.")
+				fmt.Fprintf(buffer, "Error: el flag -r no debe llevar valor.\n")
 				return
 			}
 		
@@ -632,11 +658,23 @@ func fn_mkfile(input string, buffer io.Writer) {
 	}
 
 	if path == "" {
-		fmt.Fprintln(buffer, "Error: el parámetro -path es obligatorio para MKFILE.")
+		fmt.Fprintf(buffer, "Error: el parámetro -path es obligatorio para MKFILE.\n")
 		return
 	}
 
 	if cont != "" {
+
+		aliasMap := map[string]string{
+			"/home/matius/escritorio": "/home/matius/Escritorio",
+		}
+	
+		for k, v := range aliasMap {
+			if strings.HasPrefix(cont, k) {
+				cont = strings.Replace(cont, k, v, 1)
+				break
+			}
+		}
+		
 		if _, err := os.Stat(cont); os.IsNotExist(err) {
 			fmt.Fprintf(buffer, "Error: el archivo %s no existe en el sistema local.\n", cont)
 			return
