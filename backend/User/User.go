@@ -74,6 +74,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	var filepath string
 	var partitionFound bool
 	var login bool = false
+	var namePart string
 
 	for _, partitions := range mountedPartitions {
 		for _, Partition := range partitions {
@@ -83,6 +84,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 			}
 			if Partition.ID == id {
 				filepath = Partition.Path
+				namePart = Partition.Name
 				partitionFound = true
 				break
 			}
@@ -111,14 +113,16 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	}
 
 	var index int = -1
+	NameBytes := [16]byte{}
+	copy(NameBytes[:], []byte(namePart))
+
 	for i := 0; i < 4; i++ {
 		if TempMBR.MbrPartitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
+			if bytes.Equal(TempMBR.MbrPartitions[i].Name[:], NameBytes[:]) {
 				if TempMBR.MbrPartitions[i].Status[0] == '1' {
-					fmt.Println("particion montada\n")
 					index = i
 				} else {
-					fmt.Println("particion no montada\n")
+					fmt.Fprintf(buffer, "Error LOGIN: La partición %s no está activa en disco.\n", namePart)
 					return
 				}
 				break
@@ -127,7 +131,7 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 	}
 
 	if index == -1 {
-		fmt.Fprintf(buffer, "Error en LOGIN: no se encontró ninguna partición con el ID %s\n", id)
+		fmt.Fprintf(buffer, "Error en LOGIN: no se encontró ninguna partición con el nombre %s en el disco.\n", namePart)
 		return
 	}
 
@@ -159,8 +163,8 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 		if len(words) == 5 {
 			if words[3] == user && words[4] == pass {
 				login = true
-				uidEncontrado, _ = strconv.Atoi(words[0])          // UID del usuario
-				gidEncontrado = obtenerIDGrupo(words[2], lines)    // GID según nombre grupo
+				uidEncontrado, _ = strconv.Atoi(words[0])       // UID del usuario
+				gidEncontrado = obtenerIDGrupo(words[2], lines) // GID según nombre grupo
 				break
 			}
 		}
@@ -180,7 +184,6 @@ func Login(user string, pass string, id string, buffer *bytes.Buffer) {
 
 	fmt.Println("======End LOGIN======")
 }
-
 
 func InitSearch(path string, file *os.File, tempSuperblock Structs.Superblock, buffer *bytes.Buffer) int32 {
 	fmt.Println("======Start BUSQUEDA INICIAL ======")
@@ -338,8 +341,8 @@ func AppendToFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, f
 	blockSize := binary.Size(Structs.FileBlock{})
 	numBlocks := int(math.Ceil(float64(len(dataBytes)) / float64(blockSize)))
 
-	fmt.Fprintf(buffer, "[DEBUG] Datos existentes en users.txt:\n%s\n", existingData)
-	fmt.Fprintf(buffer, "[DEBUG] Tamaño total en bytes: %d, Bloques necesarios: %d\n", len(dataBytes), numBlocks)
+	//fmt.Fprintf(buffer, "[DEBUG] Datos existentes en users.txt:\n%s\n", existingData)
+	//fmt.Fprintf(buffer, "[DEBUG] Tamaño total en bytes: %d, Bloques necesarios: %d\n", len(dataBytes), numBlocks)
 
 	if numBlocks > 12 {
 		return fmt.Errorf("el archivo users.txt excede el límite de bloques directos (12)")
@@ -357,7 +360,7 @@ func AppendToFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, f
 
 		// Si el bloque no está asignado, asignarlo del bitmap
 		if inode.IN_Block[i] == -1 {
-			fmt.Fprintf(buffer, "[DEBUG] Bloque %d no asignado, buscando en bitmap...\n", i)
+			//fmt.Fprintf(buffer, "[DEBUG] Bloque %d no asignado, buscando en bitmap...\n", i)
 			var found bool
 			for j := int32(0); j < superblock.SB_Blocks_Count; j++ {
 				var bit byte
@@ -371,7 +374,7 @@ func AppendToFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, f
 					if err := Utilities.WriteObject(file, byte(1), pos, buffer); err != nil {
 						return err
 					}
-					fmt.Fprintf(buffer, "[DEBUG] Bloque libre encontrado y asignado: %d\n", j)
+					//fmt.Fprintf(buffer, "[DEBUG] Bloque libre encontrado y asignado: %d\n", j)
 					found = true
 					break
 				}
@@ -382,7 +385,7 @@ func AppendToFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, f
 		}
 
 		blockOffset := int64(superblock.SB_Block_Start + inode.IN_Block[i]*int32(blockSize))
-		fmt.Fprintf(buffer, "[DEBUG] Escribiendo bloque %d en posición %d\n", i, blockOffset)
+		//fmt.Fprintf(buffer, "[DEBUG] Escribiendo bloque %d en posición %d\n", i, blockOffset)
 		if err := Utilities.WriteObject(file, block, blockOffset, buffer); err != nil {
 			return fmt.Errorf("error al escribir bloque %d: %v", i, err)
 		}
@@ -391,12 +394,12 @@ func AppendToFileBlock(inode *Structs.Inode, inodeIndex int32, newData string, f
 	inode.IN_Size = int32(len(dataBytes))
 
 	inodeOffset := int64(superblock.SB_Inode_Start + inodeIndex*int32(binary.Size(Structs.Inode{})))
-	fmt.Fprintf(buffer, "[DEBUG] Escribiendo inodo actualizado en posición %d\n", inodeOffset)
+	//fmt.Fprintf(buffer, "[DEBUG] Escribiendo inodo actualizado en posición %d\n", inodeOffset)
 	if err := Utilities.WriteObject(file, *inode, inodeOffset, buffer); err != nil {
 		return fmt.Errorf("error al actualizar el inodo: %v", err)
 	}
 
-	fmt.Fprintf(buffer, "[DEBUG] Archivo users.txt actualizado con éxito. Total bloques usados: %d\n", numBlocks)
+	//fmt.Fprintf(buffer, "[DEBUG] Archivo users.txt actualizado con éxito. Total bloques usados: %d\n", numBlocks)
 	return nil
 }
 
