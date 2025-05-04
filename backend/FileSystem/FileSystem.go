@@ -18,13 +18,14 @@ import (
 func Mkfs(id string, type_ string, fs_ string, buffer *bytes.Buffer) {
 	fmt.Fprintf(buffer, "========MKFS========\n")
 
-	var MountedPartitions DiskManagement.MountedPartition
+	var MountedPartition DiskManagement.MountedPartition
 	var ParticionEncontrada bool
 
+	// Buscar la partición montada en memoria por ID
 	for _, Particiones := range DiskManagement.GetMountedPartitions() {
 		for _, Particion := range Particiones {
 			if Particion.ID == id {
-				MountedPartitions = Particion
+				MountedPartition = Particion
 				ParticionEncontrada = true
 				break
 			}
@@ -35,29 +36,31 @@ func Mkfs(id string, type_ string, fs_ string, buffer *bytes.Buffer) {
 	}
 
 	if !ParticionEncontrada {
-		fmt.Fprintf(buffer, "Error MFKS: La partición: %s no existe.\n", id)
+		fmt.Fprintf(buffer, "Error MFKS: La partición: %s no está montada.\n", id)
 		return
 	}
 
-	if MountedPartitions.Status != '1' {
+	if MountedPartition.Status != '1' {
 		fmt.Fprintf(buffer, "Error MFKS: La partición %s aún no está montada.\n", id)
 		return
 	}
 
-	archivo, err := Utilities.OpenFile(MountedPartitions.Path, buffer)
+	archivo, err := Utilities.OpenFile(MountedPartition.Path, buffer)
 	if err != nil {
 		return
 	}
+	defer archivo.Close()
 
 	var TempMBR Structs.MRB
 	if err := Utilities.ReadObject(archivo, &TempMBR, 0, buffer); err != nil {
 		return
 	}
 
+	// Buscar la partición por nombre (NO por ID)
 	var IndiceParticion int = -1
 	for i := 0; i < 4; i++ {
 		if TempMBR.MbrPartitions[i].Size != 0 {
-			if strings.Contains(string(TempMBR.MbrPartitions[i].ID[:]), id) {
+			if string(bytes.Trim(TempMBR.MbrPartitions[i].Name[:], "\x00")) == MountedPartition.Name {
 				IndiceParticion = i
 				break
 			}
@@ -65,7 +68,7 @@ func Mkfs(id string, type_ string, fs_ string, buffer *bytes.Buffer) {
 	}
 
 	if IndiceParticion == -1 {
-		fmt.Fprintf(buffer, "Error MFKS: La partición: %s no existe.\n", id)
+		fmt.Fprintf(buffer, "Error MFKS: No se encontró la partición con nombre %s en el disco.\n", MountedPartition.Name)
 		return
 	}
 
@@ -95,10 +98,11 @@ func Mkfs(id string, type_ string, fs_ string, buffer *bytes.Buffer) {
 	NuevoSuperBloque.SB_Bm_Block_Start = NuevoSuperBloque.SB_Bm_Inode_Start + n
 	NuevoSuperBloque.SB_Inode_Start = NuevoSuperBloque.SB_Bm_Block_Start + 3*n
 	NuevoSuperBloque.SB_Block_Start = NuevoSuperBloque.SB_Inode_Start + n*int32(binary.Size(Structs.Inode{}))
-	// Escribir el superbloque en el archivo
+
+	// Escribir el superbloque y estructuras base en el archivo
 	SistemaEXT2(n, TempMBR.MbrPartitions[IndiceParticion], NuevoSuperBloque, FechaString, archivo, buffer)
-	defer archivo.Close()
 }
+
 
 func SistemaEXT2(n int32, Particion Structs.Partition, NuevoSuperBloque Structs.Superblock, Fecha string, archivo *os.File, buffer *bytes.Buffer) {
 	for i := int32(0); i < n; i++ {
@@ -140,7 +144,7 @@ func SistemaEXT2(n int32, Particion Structs.Partition, NuevoSuperBloque Structs.
 	// Depuración: Leer e imprimir el Inodo 0 y el FolderBlock 0
 	var inode0 Structs.Inode
 	if err := Utilities.ReadObject(archivo, &inode0, int64(NuevoSuperBloque.SB_Inode_Start), buffer); err == nil {
-		fmt.Fprintln(buffer, "\n--- Inodo Raíz (0) ---")
+		//fmt.Fprintln(buffer, "\n--- Inodo Raíz (0) ---")
 		Structs.PrintInode(inode0)
 	} else {
 		fmt.Fprintln(buffer, "Error leyendo Inodo raíz para depuración:", err)
@@ -148,7 +152,7 @@ func SistemaEXT2(n int32, Particion Structs.Partition, NuevoSuperBloque Structs.
 
 	var folder0 Structs.FolderBlock
 	if err := Utilities.ReadObject(archivo, &folder0, int64(NuevoSuperBloque.SB_Block_Start), buffer); err == nil {
-		fmt.Fprintln(buffer, "\n--- Folder Block Raíz (bloque 0) ---")
+		//fmt.Fprintln(buffer, "\n--- Folder Block Raíz (bloque 0) ---")
 		Structs.PrintFolderblock(folder0)
 	} else {
 		fmt.Fprintln(buffer, "Error leyendo FolderBlock raíz para depuración:", err)
@@ -157,7 +161,7 @@ func SistemaEXT2(n int32, Particion Structs.Partition, NuevoSuperBloque Structs.
 	// Depuración: Leer e imprimir el Inodo 1 y FileBlock 1
 	var inode1 Structs.Inode
 	if err := Utilities.ReadObject(archivo, &inode1, int64(NuevoSuperBloque.SB_Inode_Start+int32(binary.Size(Structs.Inode{}))), buffer); err == nil {
-		fmt.Fprintln(buffer, "\n--- Inodo users.txt (1) ---")
+		//fmt.Fprintln(buffer, "\n--- Inodo users.txt (1) ---")
 		Structs.PrintInode(inode1)
 	} else {
 		fmt.Fprintln(buffer, "Error leyendo Inodo users.txt para depuración:", err)
@@ -165,8 +169,8 @@ func SistemaEXT2(n int32, Particion Structs.Partition, NuevoSuperBloque Structs.
 
 	var fileblock1 Structs.FileBlock
 	if err := Utilities.ReadObject(archivo, &fileblock1, int64(NuevoSuperBloque.SB_Block_Start+int32(binary.Size(Structs.FolderBlock{}))), buffer); err == nil {
-		fmt.Fprintln(buffer, "\n--- FileBlock contenido de users.txt ---")
-		fmt.Fprintf(buffer, "Contenido: %s\n", string(fileblock1.B_Content[:]))
+		//fmt.Fprintln(buffer, "\n--- FileBlock contenido de users.txt ---")
+		//fmt.Fprintf(buffer, "Contenido: %s\n", string(fileblock1.B_Content[:]))
 	} else {
 		fmt.Fprintln(buffer, "Error leyendo FileBlock users.txt para depuración:", err)
 	}
@@ -530,7 +534,6 @@ func BuscarInodoRuta(RutaPasada []string, Inode Structs.Inode, file *os.File, te
 	return -1
 }
 
-
 // Función auxiliar para extraer el último elemento de un slice
 func pop(s *[]string) string {
 	lastIndex := len(*s) - 1
@@ -628,7 +631,7 @@ func Mkdir(path string, p bool, buffer *bytes.Buffer) {
 }
 
 func crearCarpetas(pathParts []string, currentInode Structs.Inode, file *os.File, sb Structs.Superblock, p bool, buffer *bytes.Buffer) error {
-	fmt.Fprintf(buffer, "DEBUG crearCarpetas: p=%v, pathParts=%v\n", p, pathParts)
+	//fmt.Fprintf(buffer, "DEBUG crearCarpetas: p=%v, pathParts=%v\n", p, pathParts)
 	for i, part := range pathParts {
 		found := false
 		var nextInode Structs.Inode
@@ -669,7 +672,7 @@ func crearCarpetas(pathParts []string, currentInode Structs.Inode, file *os.File
 		} else {
 			// No se encontró: ¿puede crear?
 			if !p && i != len(pathParts)-1 {
-				fmt.Fprintf(buffer, "DEBUG: no se encontró carpeta '%s' y -p no está activado\n", part)
+				//fmt.Fprintf(buffer, "DEBUG: no se encontró carpeta '%s' y -p no está activado\n", part)
 				return fmt.Errorf("no existe la carpeta '%s' y no se especificó -p", part)
 			}
 
@@ -829,9 +832,9 @@ func agregarEntradaAFolderBlock(parentInode *Structs.Inode, name string, inodeIn
 			parentInode.IN_Block[i] = newBlockIndex
 
 			// DEPURACIÓN
-			fmt.Fprintf(buffer, "DEBUG: Nuevo FolderBlock creado en bloque %d\n", newBlockIndex)
-			fmt.Fprintf(buffer, "DEBUG: Insertando nombre '%s' con inodo %d en posición 0\n", name, inodeIndex)
-			fmt.Fprintf(buffer, "DEBUG: Bytes del nombre: %v\n", newFolder.B_Content[0].B_Name)
+			//fmt.Fprintf(buffer, "DEBUG: Nuevo FolderBlock creado en bloque %d\n", newBlockIndex)
+			//fmt.Fprintf(buffer, "DEBUG: Insertando nombre '%s' con inodo %d en posición 0\n", name, inodeIndex)
+			//fmt.Fprintf(buffer, "DEBUG: Bytes del nombre: %v\n", newFolder.B_Content[0].B_Name)
 
 			return nil
 		} else {
@@ -850,9 +853,9 @@ func agregarEntradaAFolderBlock(parentInode *Structs.Inode, name string, inodeIn
 					}
 
 					// DEPURACIÓN
-					fmt.Fprintf(buffer, "DEBUG: Insertando nombre '%s' en FolderBlock existente en bloque %d, posición %d\n", name, block, j)
-					fmt.Fprintf(buffer, "DEBUG: Inodo asociado: %d\n", inodeIndex)
-					fmt.Fprintf(buffer, "DEBUG: Bytes del nombre: %v\n", folder.B_Content[j].B_Name)
+					//fmt.Fprintf(buffer, "DEBUG: Insertando nombre '%s' en FolderBlock existente en bloque %d, posición %d\n", name, block, j)
+					//fmt.Fprintf(buffer, "DEBUG: Inodo asociado: %d\n", inodeIndex)
+					//fmt.Fprintf(buffer, "DEBUG: Bytes del nombre: %v\n", folder.B_Content[j].B_Name)
 
 					return nil
 				}
@@ -1073,13 +1076,12 @@ func Mkfile(path string, p bool, content string, buffer *bytes.Buffer) {
 	}
 }
 
-
 func buscarInodoPorRuta(path string, file *os.File, sb Structs.Superblock, buffer *bytes.Buffer) int32 {
 	ruta := strings.Split(strings.Trim(path, "/"), "/")
 	inodoActual := int32(0) // raíz
 
 	for _, nombre := range ruta {
-		fmt.Fprintf(buffer, "DEBUG: buscando '%s' en inodo %d\n", nombre, inodoActual)
+		//fmt.Fprintf(buffer, "DEBUG: buscando '%s' en inodo %d\n", nombre, inodoActual)
 
 		var inode Structs.Inode
 		offsetInodo := int64(sb.SB_Inode_Start + inodoActual*int32(binary.Size(Structs.Inode{})))
@@ -1104,7 +1106,7 @@ func buscarInodoPorRuta(path string, file *os.File, sb Structs.Superblock, buffe
 
 			for _, entrada := range folder.B_Content {
 				nombreEntrada := strings.Trim(string(entrada.B_Name[:]), "\x00")
-				fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", nombreEntrada)
+				//fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", nombreEntrada)
 				if nombreEntrada == nombre && entrada.B_Inode != -1 {
 					inodoActual = entrada.B_Inode
 					encontrado = true
@@ -1131,7 +1133,7 @@ func BuscarInodoPorRutaREPORTE(path string, file *os.File, sb Structs.Superblock
 	inodoActual := int32(0) // raíz
 
 	for _, nombre := range ruta {
-		fmt.Fprintf(buffer, "DEBUG: buscando '%s' en inodo %d\n", nombre, inodoActual)
+		//fmt.Fprintf(buffer, "DEBUG: buscando '%s' en inodo %d\n", nombre, inodoActual)
 
 		var inode Structs.Inode
 		offsetInodo := int64(sb.SB_Inode_Start + inodoActual*int32(binary.Size(Structs.Inode{})))
@@ -1156,7 +1158,7 @@ func BuscarInodoPorRutaREPORTE(path string, file *os.File, sb Structs.Superblock
 
 			for _, entrada := range folder.B_Content {
 				nombreEntrada := strings.Trim(string(entrada.B_Name[:]), "\x00")
-				fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", nombreEntrada)
+				//fmt.Fprintf(buffer, "DEBUG: comparando con entrada '%s'\n", nombreEntrada)
 				if nombreEntrada == nombre && entrada.B_Inode != -1 {
 					inodoActual = entrada.B_Inode
 					encontrado = true
@@ -1178,8 +1180,8 @@ func BuscarInodoPorRutaREPORTE(path string, file *os.File, sb Structs.Superblock
 }
 
 func IsUserLoggedInREPORTE() bool {
-	fmt.Println("DEBUG: Usuario actual:", User.Data.GetIDUsuario())
-	fmt.Println("DEBUG: Partición actual:", User.Data.GetIDPartition())
+	//fmt.Println("DEBUG: Usuario actual:", User.Data.GetIDUsuario())
+	//fmt.Println("DEBUG: Partición actual:", User.Data.GetIDPartition())
 	return User.Data.GetIDUsuario() != "" && User.Data.GetIDPartition() != ""
 }
 
