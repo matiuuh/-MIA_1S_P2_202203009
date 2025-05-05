@@ -11,9 +11,10 @@ label=""
 disco [shape=none label=<
 <TABLE border="0" cellspacing="4" cellpadding="5" color="skyblue">
 <TR><TD bgcolor="#a7d0d2" border="1" cellpadding="65">MBR</TD>
-<TD bgcolor="#4697b4" border="1" cellpadding="20">Partición Primaria 1<br/>33.33% del Disco</TD>
-<TD bgcolor="#4697b4" border="1" cellpadding="20">Partición Primaria 2<br/>26.67% del Disco</TD>
-<TD bgcolor="#f1e6d2" border="1" cellpadding="20">Espacio Libre<br/>40.00% del Disco</TD>
+<TD bgcolor="#4697b4" border="1" cellpadding="20">Partición Primaria 1<br/>30.77% del Disco</TD>
+<TD bgcolor="#4697b4" border="1" cellpadding="20">Partición Primaria 2<br/>30.77% del Disco</TD>
+<TD bgcolor="#4697b4" border="1" cellpadding="20">Partición Primaria 3<br/>7.69% del Disco</TD>
+<TD bgcolor="#f1e6d2" border="1" cellpadding="20">Espacio Libre<br/>30.77% del Disco</TD>
 </TR>
 </TABLE>
 >];

@@ -7,10 +7,10 @@ MATEO DIEGO
 mbrTable [label=<
 <table border='1' cellborder='1' cellspacing='0'>
 <tr><td bgcolor="blue" colspan='2'>MBR</td></tr>
-<tr><td>Tamaño</td><td>3072000</td></tr>
-<tr><td>Fecha De Creación</td><td>2025-03-23</td></tr>
+<tr><td>Tamaño</td><td>13631488</td></tr>
+<tr><td>Fecha De Creación</td><td>2025-04-03</td></tr>
 <tr><td>Ajuste</td><td>f</td></tr>
-<tr><td>Signature</td><td>1450872073</td></tr>
+<tr><td>Signature</td><td>1986122834</td></tr>
 </table>
 >];
 PA1 [label=<
@@ -20,9 +20,33 @@ PA1 [label=<
 <tr><td>Tipo</td><td>p</td></tr>
 <tr><td>Ajuste</td><td>w</td></tr>
 <tr><td>Incio</td><td>159</td></tr>
-<tr><td>Tamaño</td><td>1024000</td></tr>
-<tr><td>Nombre</td><td>partgod</td></tr>
+<tr><td>Tamaño</td><td>4194304</td></tr>
+<tr><td>Nombre</td><td>part31</td></tr>
 <tr><td>Correlativo</td><td>1</td></tr>
+</table>
+>];
+PA2 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td bgcolor="red" colspan='2'>Partición 2</td></tr>
+<tr><td>Estado</td><td>1</td></tr>
+<tr><td>Tipo</td><td>p</td></tr>
+<tr><td>Ajuste</td><td>w</td></tr>
+<tr><td>Incio</td><td>4194463</td></tr>
+<tr><td>Tamaño</td><td>4194304</td></tr>
+<tr><td>Nombre</td><td>part32</td></tr>
+<tr><td>Correlativo</td><td>2</td></tr>
+</table>
+>];
+PA3 [label=<
+<table border='1' cellborder='1' cellspacing='0'>
+<tr><td bgcolor="red" colspan='2'>Partición 3</td></tr>
+<tr><td>Estado</td><td>0</td></tr>
+<tr><td>Tipo</td><td>p</td></tr>
+<tr><td>Ajuste</td><td>w</td></tr>
+<tr><td>Incio</td><td>8388767</td></tr>
+<tr><td>Tamaño</td><td>1048576</td></tr>
+<tr><td>Nombre</td><td>part33</td></tr>
+<tr><td>Correlativo</td><td>3</td></tr>
 </table>
 >];
 }
